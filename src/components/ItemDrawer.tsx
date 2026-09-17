@@ -4,6 +4,7 @@ import { usePersistedState } from '@/hooks/usePersistedState'
 import type { GitHubClient } from '@/lib/github'
 import type { Item, ItemDetail, RepoLabel, Viewer } from '@/lib/types'
 import { formatDate, timeAgo } from '@/lib/utils'
+import { RepoMenu } from './RepoMenu'
 import { Avatar, Button, ExternalIcon, IssueIcon, LabelChip, PullRequestIcon, Spinner } from './ui'
 
 /** Default drawer width on desktop (Tailwind's max-w-2xl). */
@@ -194,9 +195,13 @@ export function ItemDrawer({
                     {item.type === 'pr' ? <PullRequestIcon /> : <IssueIcon />}
                 </span>
                 <div className='min-w-0 flex-1'>
-                    <div className='text-faint text-xs'>
-                        {item.repo} #{item.number} · {item.state}
-                        {item.draft ? ' · draft' : ''}
+                    <div className='text-faint flex flex-wrap items-center gap-x-1 text-xs'>
+                        <span>{item.repo}</span>
+                        <RepoMenu repo={item.repo} onToast={onToast} />
+                        <span>
+                            #{item.number} · {item.state}
+                            {item.draft ? ' · draft' : ''}
+                        </span>
                     </div>
                     <h2 className='text-lg leading-snug font-extrabold'>{item.title}</h2>
                     <div className='text-muted mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>

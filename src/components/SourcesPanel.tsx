@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import clsx from 'clsx'
+import { copyText } from '@/lib/repo'
 import { parseSource, serializeSources, sourceKey, sourceLabel } from '@/lib/sources'
 import type { Source, Viewer } from '@/lib/types'
+import { RepoMenu } from './RepoMenu'
 import { Button, ExternalIcon, SectionTitle } from './ui'
 
 interface Props {
@@ -61,12 +63,11 @@ export function SourcesPanel({
         url.search = sources.length
             ? `?sources=${encodeURIComponent(serializeSources(sources))}`
             : ''
-        try {
-            await navigator.clipboard.writeText(url.toString())
-            onToast('Link copied. Anyone opening it gets these sources pre-filled.')
-        } catch {
-            onToast(url.toString())
-        }
+        onToast(
+            (await copyText(url.toString()))
+                ? 'Link copied. Anyone opening it gets these sources pre-filled.'
+                : url.toString()
+        )
     }
 
     return (
@@ -148,6 +149,7 @@ export function SourcesPanel({
                             >
                                 <ExternalIcon />
                             </a>
+                            {s.kind === 'repo' && <RepoMenu repo={s.value} onToast={onToast} />}
                             <span className='text-faint ml-auto font-mono text-xs tabular-nums'>
                                 {counts[sourceKey(s)] ?? 0}
                             </span>

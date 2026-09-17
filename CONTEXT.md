@@ -13,3 +13,4 @@ The vocabulary used in code, tests and docs. Use these terms exactly.
 - **Action**: a write the viewer performs on an item from the dashboard: upvote (a 👍 reaction), comment, set labels, assign or unassign self, close or reopen. Actions require a viewer and a token with write permission.
 - **Preset**: a list of sources encoded in the page URL (`?sources=`). A preset is imported into the stored sources once, on load, then the URL is cleaned.
 - **Cache**: the last fetched item set, stored locally with the key of the effective sources and state it was fetched for. It lets the dashboard paint instantly and is replaced on every successful refresh.
+- **Repo menu**: the ⧉ button next to any repository name (item card, item panel, repo group header, repo source). It copies the repo's web URL, HTTPS clone URL or SSH clone URL, derived from `owner/name` (see `src/lib/repo.ts`).

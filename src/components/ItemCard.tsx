@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { attentionFlags } from '@/lib/filtering'
 import type { Item } from '@/lib/types'
 import { pluralize, timeAgo } from '@/lib/utils'
+import { RepoMenu } from './RepoMenu'
 import { Avatar, IssueIcon, LabelChip, PullRequestIcon } from './ui'
 
 interface Props {
@@ -11,9 +12,18 @@ interface Props {
     onSelect: () => void
     onLabelClick: (name: string) => void
     onRepoClick: (repo: string) => void
+    onToast: (msg: string) => void
 }
 
-export function ItemCard({ item, now, selected, onSelect, onLabelClick, onRepoClick }: Props) {
+export function ItemCard({
+    item,
+    now,
+    selected,
+    onSelect,
+    onLabelClick,
+    onRepoClick,
+    onToast
+}: Props) {
     const flags = attentionFlags(item, now)
     const idle = flags.includes('dormant') ? 'dormant' : flags.includes('stale') ? 'stale' : null
     return (
@@ -53,6 +63,7 @@ export function ItemCard({ item, now, selected, onSelect, onLabelClick, onRepoCl
                         >
                             {item.repo}
                         </button>
+                        <RepoMenu repo={item.repo} onToast={onToast} subtle />
                         <span>#{item.number}</span>
                         {item.draft && (
                             <span className='rounded bg-white/10 px-1.5 text-[10px] font-semibold uppercase'>

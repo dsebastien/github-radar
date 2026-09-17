@@ -5,6 +5,7 @@ import { Header } from './components/Header'
 import { Hero } from './components/Hero'
 import { ItemCard } from './components/ItemCard'
 import { ItemDrawer } from './components/ItemDrawer'
+import { RepoMenu } from './components/RepoMenu'
 import { LoginDialog } from './components/LoginDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SourcesPanel } from './components/SourcesPanel'
@@ -348,7 +349,7 @@ export function App() {
                         groups.map((g) => (
                             <section key={g.key} className='grid gap-2 2xl:grid-cols-2'>
                                 {g.key && (
-                                    <h2 className='mt-2 flex items-center gap-2 text-sm font-extrabold 2xl:col-span-2'>
+                                    <h2 className='group mt-2 flex items-center gap-2 text-sm font-extrabold 2xl:col-span-2'>
                                         <button
                                             type='button'
                                             onClick={() => toggleGroup(g.key)}
@@ -371,6 +372,9 @@ export function App() {
                                                 {g.items.length}
                                             </span>
                                         </button>
+                                        {filters.group === 'repo' && (
+                                            <RepoMenu repo={g.key} onToast={toast} subtle />
+                                        )}
                                     </h2>
                                 )}
                                 {!collapsedKeys.has(g.key) &&
@@ -382,6 +386,7 @@ export function App() {
                                             selected={item.id === selectedId}
                                             onSelect={() => setSelectedId(item.id)}
                                             onRepoClick={focusRepo}
+                                            onToast={toast}
                                             onLabelClick={(name) =>
                                                 setFilters((f) => ({
                                                     ...f,
