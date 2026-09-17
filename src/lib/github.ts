@@ -27,7 +27,7 @@ export class GitHubError extends Error {
     }
 }
 
-type Fetch = typeof fetch
+type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 interface RawUser {
     login: string
@@ -155,7 +155,7 @@ export class GitHubClient {
     constructor(
         private readonly token: string | null,
         private readonly onRateLimit: (r: RateLimit) => void = () => {},
-        private readonly fetchImpl: Fetch = fetch
+        private readonly fetchImpl: Fetch = (...args) => globalThis.fetch(...args)
     ) {}
 
     get authenticated(): boolean {
