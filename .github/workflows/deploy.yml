@@ -1,0 +1,49 @@
+name: Deploy to GitHub Pages
+
+on:
+    push:
+        branches: [main]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+concurrency:
+    group: pages
+    cancel-in-progress: false
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version-file: package.json
+
+            - run: bun install --frozen-lockfile
+
+            - name: Validate
+              run: bun run validate
+
+            - name: Build
+              # Served from https://<owner>.github.io/<repo>/ — derived from the repo name so forks work unchanged.
+              # Deploying to a custom domain or a user/org root page? Set BASE_PATH to "/".
+              run: BASE_PATH="/${GITHUB_REPOSITORY#*/}/" bun run build
+
+            - uses: actions/upload-pages-artifact@v3
+              with:
+                  path: dist
+
+    deploy:
+        needs: build
+        runs-on: ubuntu-latest
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        steps:
+            - id: deployment
+              uses: actions/deploy-pages@v4

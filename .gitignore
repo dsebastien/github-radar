@@ -1,0 +1,38 @@
+# Editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea
+*.iml
+*.sw?
+*~
+
+# Dependencies
+node_modules
+
+# Build output
+dist/
+
+# System files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+logs/
+*.log
+
+# Temp files
+*.tmp
+*.bak
+*.local
+tmp/
+
+# Dotenv
+.env
+.env.*
+!.env.example
+
+# Caches
+.eslintcache
+*.tsbuildinfo

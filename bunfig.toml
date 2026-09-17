@@ -1,0 +1,10 @@
+telemetry = false
+
+[install]
+exact = true
+# Only install package versions published at least 3 days ago (supply-chain guard)
+minimumReleaseAge = 259200
+minimumReleaseAgeExcludes = ["@types/bun", "bun-types", "typescript"]
+
+[test]
+coverage = false
