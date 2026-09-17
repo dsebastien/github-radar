@@ -1,4 +1,5 @@
-import type { AttentionFilter, Filters, GroupKey, Item, SortKey } from './types'
+import { sourceKey } from './sources'
+import type { AttentionFilter, Filters, GroupKey, Item, SortKey, Source } from './types'
 
 const DAY = 86_400_000
 export const STALE_DAYS = 30
@@ -41,6 +42,29 @@ function hasAny(values: string[], wanted: string[]): boolean {
 export interface FilterContext {
     now: number
     viewerLogin: string | null
+    /** The effective sources, used to resolve which source(s) an item came from. */
+    sources: Source[]
+}
+
+/** The sources an item belongs to: its repo, or the user/org owning that repo. */
+export function itemSources(item: Item, sources: Source[]): Source[] {
+    const repo = item.repo.toLowerCase()
+    const owner = repo.split('/')[0] ?? ''
+    return sources.filter((s) =>
+        s.kind === 'repo' ? s.value.toLowerCase() === repo : s.value.toLowerCase() === owner
+    )
+}
+
+/** Items per source key, for the sources panel. */
+export function countBySource(items: Item[], sources: Source[]): Record<string, number> {
+    const counts: Record<string, number> = {}
+    for (const item of items) {
+        for (const s of itemSources(item, sources)) {
+            const key = sourceKey(s)
+            counts[key] = (counts[key] ?? 0) + 1
+        }
+    }
+    return counts
 }
 
 /** Apply every filter. Sorting and grouping are separate, composable steps. */
@@ -49,6 +73,12 @@ export function applyFilters(items: Item[], f: Filters, ctx: FilterContext): Ite
         if (f.type !== 'all' && item.type !== f.type) return false
         if (f.state !== 'all' && item.state !== f.state) return false
         if (f.hideDrafts && item.draft) return false
+        if (f.hiddenSources.length > 0) {
+            const hidden = new Set(f.hiddenSources)
+            const origins = itemSources(item, ctx.sources)
+            // An item stays visible as long as one of its sources is visible.
+            if (origins.length > 0 && origins.every((s) => hidden.has(sourceKey(s)))) return false
+        }
         if (!matchesText(item, f.text)) return false
         if (
             !hasAny(

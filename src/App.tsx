@@ -12,8 +12,8 @@ import { Toasts, type Toast } from './components/Toasts'
 import { Button, Spinner } from './components/ui'
 import { usePersistedState } from './hooks/usePersistedState'
 import { useRadar } from './hooks/useRadar'
-import { applyFilters, computeFacets, groupItems, sortItems } from './lib/filtering'
-import { addSource, deserializeSources, removeSource } from './lib/sources'
+import { applyFilters, computeFacets, countBySource, groupItems, sortItems } from './lib/filtering'
+import { addSource, deserializeSources, removeSource, sourceKey } from './lib/sources'
 import { load, remove, save } from './lib/storage'
 import {
     DEFAULT_FILTERS,
@@ -25,6 +25,8 @@ import {
 import { timeAgo } from './lib/utils'
 
 const TOKEN_KEY = 'token'
+/** Cards rendered before the "Load more" button. */
+const PAGE_SIZE = 50
 
 /** Sources from `?sources=` are merged into the persisted list once, then the param is removed. */
 function initialSources(): Source[] {
@@ -76,13 +78,33 @@ export function App() {
             sortItems(
                 applyFilters(radar.items, filters, {
                     now,
-                    viewerLogin: radar.viewer?.login ?? null
+                    viewerLogin: radar.viewer?.login ?? null,
+                    sources: radar.effective
                 }),
                 filters.sort
             ),
-        [radar.items, filters, now, radar.viewer?.login]
+        [radar.items, filters, now, radar.viewer?.login, radar.effective]
     )
-    const groups = useMemo(() => groupItems(shown, filters.group), [shown, filters.group])
+    // "Load more" paging, reset whenever the filtered list changes identity.
+    const pageKey = `${JSON.stringify(filters)}|${radar.items.length}`
+    const [page, setPage] = useState({ key: pageKey, limit: PAGE_SIZE })
+    const limit = page.key === pageKey ? page.limit : PAGE_SIZE
+    const visible = useMemo(() => shown.slice(0, limit), [shown, limit])
+    const groups = useMemo(() => groupItems(visible, filters.group), [visible, filters.group])
+    const sourceCounts = useMemo(
+        () => countBySource(radar.items, radar.effective),
+        [radar.items, radar.effective]
+    )
+    const toggleSource = (s: Source) =>
+        setFilters((f) => {
+            const key = sourceKey(s)
+            return {
+                ...f,
+                hiddenSources: f.hiddenSources.includes(key)
+                    ? f.hiddenSources.filter((k) => k !== key)
+                    : [...f.hiddenSources, key]
+            }
+        })
     const selected =
         selectedId === null ? null : (radar.items.find((i) => i.id === selectedId) ?? null)
 
@@ -119,6 +141,9 @@ export function App() {
                         onAdd={(s) => setSources((list) => addSource(list, s))}
                         onRemove={(s) => setSources((list) => removeSource(list, s))}
                         onToast={toast}
+                        hidden={filters.hiddenSources}
+                        counts={sourceCounts}
+                        onToggleHidden={toggleSource}
                     />
                     {!radar.viewer && !radar.viewerLoading && (
                         <div className='bg-surface border-line rounded-xl border p-4 text-sm'>
@@ -245,6 +270,19 @@ export function App() {
                                 ))}
                             </section>
                         ))
+                    )}
+                    {shown.length > visible.length && (
+                        <div className='flex flex-col items-center gap-1 py-4'>
+                            <Button
+                                variant='secondary'
+                                onClick={() => setPage({ key: pageKey, limit: limit + PAGE_SIZE })}
+                            >
+                                Load more
+                            </Button>
+                            <span className='text-faint text-xs'>
+                                Showing {visible.length} of {shown.length}
+                            </span>
+                        </div>
                     )}
                 </div>
             </main>

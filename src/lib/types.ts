@@ -68,6 +68,8 @@ export interface Filters {
     mine: MineFilter
     attention: AttentionFilter
     hideDrafts: boolean
+    /** Source keys (see sourceKey) whose items are hidden. */
+    hiddenSources: string[]
     sort: SortKey
     group: GroupKey
 }
@@ -83,6 +85,7 @@ export const DEFAULT_FILTERS: Filters = {
     mine: 'any',
     attention: 'any',
     hideDrafts: false,
+    hiddenSources: [],
     sort: 'updated',
     group: 'none'
 }

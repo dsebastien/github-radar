@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { applyFilters, attentionFlags, computeFacets, groupItems, sortItems } from './filtering'
+import {
+    applyFilters,
+    attentionFlags,
+    computeFacets,
+    countBySource,
+    groupItems,
+    itemSources,
+    sortItems
+} from './filtering'
 import { DEFAULT_FILTERS, type Item } from './types'
 
 const NOW = Date.parse('2026-09-17T12:00:00Z')
@@ -36,7 +44,11 @@ const fixtures: Item[] = [
     item({ id: 4, title: 'Ancient', updated_at: daysAgo(200), state: 'closed' })
 ]
 
-const ctx = { now: NOW, viewerLogin: 'bob' }
+const sources = [
+    { kind: 'user' as const, value: 'O' },
+    { kind: 'repo' as const, value: 'o/other' }
+]
+const ctx = { now: NOW, viewerLogin: 'bob', sources }
 
 describe('applyFilters', () => {
     test('defaults keep open items only', () => {
@@ -67,7 +79,7 @@ describe('applyFilters', () => {
             applyFilters(
                 fixtures,
                 { ...DEFAULT_FILTERS, mine },
-                { now: NOW, viewerLogin: login }
+                { ...ctx, viewerLogin: login }
             ).map((i) => i.id)
         expect(run('authored', 'bob')).toEqual([2])
         expect(run('assigned', 'bob')).toEqual([1])
@@ -84,6 +96,23 @@ describe('applyFilters', () => {
         expect(run('draft')).toEqual([2])
         expect(run('unlabeled')).toEqual([2, 3, 4])
         expect(run('unassigned')).toEqual([2, 3, 4])
+    })
+})
+
+describe('source visibility', () => {
+    test('itemSources matches owner for users/orgs and full name for repos, case-insensitively', () => {
+        expect(itemSources(fixtures[0]!, sources)).toEqual([{ kind: 'user', value: 'O' }])
+        expect(itemSources(fixtures[1]!, sources)).toEqual(sources)
+    })
+    test('hidden sources drop items unless another visible source still covers them', () => {
+        const run = (hiddenSources: string[]) =>
+            applyFilters(fixtures, { ...DEFAULT_FILTERS, hiddenSources }, ctx).map((i) => i.id)
+        expect(run(['user:o'])).toEqual([2])
+        expect(run(['user:o', 'repo:o/other'])).toEqual([])
+        expect(run(['repo:o/other'])).toEqual([1, 2, 3])
+    })
+    test('countBySource', () => {
+        expect(countBySource(fixtures, sources)).toEqual({ 'user:o': 4, 'repo:o/other': 1 })
     })
 })
 

@@ -10,8 +10,10 @@ Static, private, and generic: it runs entirely in your browser, talks only to `a
 
 - **Sources**: any mix of GitHub users, organizations and single repositories. Paste a login, `org:name`, `owner/repo` or a GitHub URL.
 - **Optional login** with a fine-grained personal access token: private repositories, a much higher API rate limit, and automatic inclusion of your own account and every organization you belong to.
+- **Per-source visibility**: an eye toggle on each source shows or hides its items without removing it; each source shows how many items it contributes.
 - **Filters**: full-text (title, repo, `#number`, author, label), issue/PR, open/closed, labels, repos, authors, assignees, draft PRs, and "mine" shortcuts (assigned to me, by me, involved).
 - **Needs-attention signals**: stale (30+ days idle), dormant (90+ days), unlabeled, unassigned, draft.
+- **Load more**: the list renders 50 cards at a time; a button at the bottom loads the next batch.
 - **Sort and group**: by recent activity, creation date, discussion, or title; group by repository or author.
 - **Actions when logged in**: 👍 upvote, comment (Markdown), add/remove labels, assign/unassign yourself, close/reopen (with confirmation).
 - **Persistence**: sources, filters, settings, token and the last result set live in `localStorage`, so the dashboard paints instantly on the next visit and refreshes in the background (interval configurable).
