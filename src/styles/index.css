@@ -45,6 +45,22 @@ a {
     text-decoration: none;
 }
 
+/* Tailwind 4's preflight resets buttons to the default cursor; anything clickable gets a hand. */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+a[href],
+select:not(:disabled),
+summary,
+label[for],
+input[type='checkbox']:not(:disabled),
+input[type='radio']:not(:disabled) {
+    cursor: pointer;
+}
+button:disabled,
+select:disabled {
+    cursor: not-allowed;
+}
+
 ::selection {
     background: rgba(229, 0, 125, 0.45);
 }
