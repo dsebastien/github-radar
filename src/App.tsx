@@ -9,7 +9,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { SourcesPanel } from './components/SourcesPanel'
 import { StatsRow } from './components/StatsRow'
 import { Toasts, type Toast } from './components/Toasts'
-import { Button, Spinner } from './components/ui'
+import { Button, GitHubIcon, Spinner } from './components/ui'
 import { usePersistedState } from './hooks/usePersistedState'
 import { useRadar } from './hooks/useRadar'
 import {
@@ -356,25 +356,28 @@ export function App() {
                 </div>
             </main>
 
-            <footer className='text-faint mx-auto max-w-[112rem] px-4 pb-8 text-center text-xs'>
+            <footer className='text-faint mx-auto flex max-w-[112rem] flex-col items-center gap-2 px-4 pb-8 text-center text-xs'>
                 <a
                     href='https://github.com/dsebastien/github-radar'
                     target='_blank'
                     rel='noreferrer'
-                    className='hover:text-white'
+                    className='inline-flex items-center gap-2 rounded-lg bg-white/8 px-3 py-1.5 font-semibold text-white transition hover:bg-white/14'
                 >
-                    GitHub Radar
-                </a>{' '}
-                is open source (MIT), by{' '}
-                <a
-                    href='https://dsebastien.net'
-                    target='_blank'
-                    rel='noreferrer'
-                    className='hover:text-white'
-                >
-                    Sébastien Dubois
+                    <GitHubIcon />
+                    GitHub Radar is open source (MIT)
                 </a>
-                . Nothing leaves your browser except requests to api.github.com.
+                <p>
+                    Made by{' '}
+                    <a
+                        href='https://dsebastien.net'
+                        target='_blank'
+                        rel='noreferrer'
+                        className='hover:text-white'
+                    >
+                        Sébastien Dubois
+                    </a>
+                    . Nothing leaves your browser except requests to api.github.com.
+                </p>
             </footer>
 
             {selected && (

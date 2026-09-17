@@ -1,9 +1,16 @@
 import clsx from 'clsx'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import type { GitHubClient } from '@/lib/github'
 import type { Item, ItemDetail, RepoLabel, Viewer } from '@/lib/types'
 import { formatDate, timeAgo } from '@/lib/utils'
 import { Avatar, Button, ExternalIcon, IssueIcon, LabelChip, PullRequestIcon, Spinner } from './ui'
+
+/** Default drawer width on desktop (Tailwind's max-w-2xl). */
+const DEFAULT_WIDTH = 672
+const MIN_WIDTH = 360
+/** Keep at least this much of the page visible when not maximized. */
+const PAGE_MARGIN = 96
 
 interface Props {
     item: Item
@@ -33,6 +40,39 @@ export function ItemDrawer({
     const [labelsOpen, setLabelsOpen] = useState(false)
     const [repoLabels, setRepoLabels] = useState<RepoLabel[] | null>(null)
     const [confirmState, setConfirmState] = useState(false)
+    // Desktop sizing: drag the left edge, maximize, or reset. Persisted across items and visits.
+    const [width, setWidth] = usePersistedState<number>('drawerWidth', DEFAULT_WIDTH)
+    const [maximized, setMaximized] = usePersistedState<boolean>('drawerMaximized', false)
+    const [dragging, setDragging] = useState(false)
+    const customized = maximized || width !== DEFAULT_WIDTH
+    const resetSize = () => {
+        setWidth(DEFAULT_WIDTH)
+        setMaximized(false)
+    }
+    const startResize = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            if (e.button !== 0) return
+            e.preventDefault()
+            setDragging(true)
+            setMaximized(false)
+            const move = (ev: PointerEvent) => {
+                const max = window.innerWidth - PAGE_MARGIN
+                setWidth(
+                    Math.round(Math.min(max, Math.max(MIN_WIDTH, window.innerWidth - ev.clientX)))
+                )
+            }
+            const stop = () => {
+                setDragging(false)
+                window.removeEventListener('pointermove', move)
+                window.removeEventListener('pointerup', stop)
+                window.removeEventListener('pointercancel', stop)
+            }
+            window.addEventListener('pointermove', move)
+            window.addEventListener('pointerup', stop)
+            window.addEventListener('pointercancel', stop)
+        },
+        [setWidth, setMaximized]
+    )
 
     // The drawer is keyed by item id in App, so a new item remounts it with fresh state.
     useEffect(() => {
@@ -125,9 +165,25 @@ export function ItemDrawer({
 
     return (
         <aside
-            className='bg-surface border-line drawer-in fixed inset-y-0 right-0 z-40 flex w-full max-w-2xl flex-col border-l shadow-2xl'
+            className={clsx(
+                'bg-surface border-line fixed inset-y-0 right-0 z-40 flex w-full max-w-full flex-col border-l shadow-2xl',
+                !dragging && 'drawer-in transition-[width] duration-150'
+            )}
+            style={{ width: maximized ? '100vw' : width }}
             aria-label={`${item.repo} #${item.number}`}
         >
+            <div
+                role='separator'
+                aria-orientation='vertical'
+                aria-label='Resize panel'
+                title='Drag to resize, double-click to reset'
+                onPointerDown={startResize}
+                onDoubleClick={resetSize}
+                className={clsx(
+                    'absolute inset-y-0 left-0 z-10 hidden w-1.5 cursor-col-resize transition lg:block',
+                    dragging ? 'bg-secondary' : 'hover:bg-secondary/60'
+                )}
+            />
             <header className='border-line flex items-start gap-3 border-b p-4'>
                 <span
                     className={clsx(
@@ -170,14 +226,37 @@ export function ItemDrawer({
                         </a>
                     </div>
                 </div>
-                <button
-                    type='button'
-                    onClick={onClose}
-                    className='text-muted px-2 text-2xl leading-none hover:text-white'
-                    aria-label='Close'
-                >
-                    ×
-                </button>
+                <div className='flex shrink-0 items-center gap-0.5'>
+                    {customized && (
+                        <button
+                            type='button'
+                            onClick={resetSize}
+                            className='text-muted hidden rounded p-1.5 hover:text-white lg:block'
+                            aria-label='Reset panel size'
+                            title='Reset size'
+                        >
+                            <ResetIcon />
+                        </button>
+                    )}
+                    <button
+                        type='button'
+                        onClick={() => setMaximized((m) => !m)}
+                        className='text-muted hidden rounded p-1.5 hover:text-white lg:block'
+                        aria-label={maximized ? 'Restore panel size' : 'Maximize panel'}
+                        title={maximized ? 'Restore' : 'Maximize'}
+                    >
+                        {maximized ? <RestoreIcon /> : <MaximizeIcon />}
+                    </button>
+                    <button
+                        type='button'
+                        onClick={onClose}
+                        className='text-muted px-2 text-2xl leading-none hover:text-white'
+                        aria-label='Close'
+                        title='Close (Esc)'
+                    >
+                        ×
+                    </button>
+                </div>
             </header>
 
             <div className='border-line flex flex-wrap items-center gap-2 border-b p-3'>
@@ -346,5 +425,29 @@ export function ItemDrawer({
                 </div>
             </form>
         </aside>
+    )
+}
+
+function MaximizeIcon() {
+    return (
+        <svg viewBox='0 0 16 16' width='16' height='16' fill='currentColor' aria-hidden>
+            <path d='M3.75 3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25Zm-1.75.25C2 2.784 2.784 2 3.75 2h8.5c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25Z' />
+        </svg>
+    )
+}
+
+function RestoreIcon() {
+    return (
+        <svg viewBox='0 0 16 16' width='16' height='16' fill='currentColor' aria-hidden>
+            <path d='M5.75 2A1.75 1.75 0 0 0 4 3.75V4H3.75A1.75 1.75 0 0 0 2 5.75v6.5c0 .966.784 1.75 1.75 1.75h6.5A1.75 1.75 0 0 0 12 12.25V12h.25A1.75 1.75 0 0 0 14 10.25v-6.5A1.75 1.75 0 0 0 12.25 2ZM12 10.5h.25a.25.25 0 0 0 .25-.25v-6.5a.25.25 0 0 0-.25-.25h-6.5a.25.25 0 0 0-.25.25V4h4.75c.966 0 1.75.784 1.75 1.75Zm-8.5-4.75a.25.25 0 0 1 .25-.25h6.5a.25.25 0 0 1 .25.25v6.5a.25.25 0 0 1-.25.25h-6.5a.25.25 0 0 1-.25-.25Z' />
+        </svg>
+    )
+}
+
+function ResetIcon() {
+    return (
+        <svg viewBox='0 0 16 16' width='16' height='16' fill='currentColor' aria-hidden>
+            <path d='M8 2.5a5.5 5.5 0 1 0 4.4 2.2l.9-1.2A7 7 0 1 1 8 1v1.5Zm2.5-.5V0h1.5v4h-4V2.5Z' />
+        </svg>
     )
 }
