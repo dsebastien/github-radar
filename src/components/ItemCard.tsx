@@ -10,9 +10,10 @@ interface Props {
     selected: boolean
     onSelect: () => void
     onLabelClick: (name: string) => void
+    onRepoClick: (repo: string) => void
 }
 
-export function ItemCard({ item, now, selected, onSelect, onLabelClick }: Props) {
+export function ItemCard({ item, now, selected, onSelect, onLabelClick, onRepoClick }: Props) {
     const flags = attentionFlags(item, now)
     const idle = flags.includes('dormant') ? 'dormant' : flags.includes('stale') ? 'stale' : null
     return (
@@ -41,7 +42,17 @@ export function ItemCard({ item, now, selected, onSelect, onLabelClick }: Props)
                 </span>
                 <div className='min-w-0 flex-1'>
                     <div className='text-faint flex flex-wrap items-center gap-x-2 text-xs'>
-                        <span className='truncate font-medium'>{item.repo}</span>
+                        <button
+                            type='button'
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onRepoClick(item.repo)
+                            }}
+                            title={`Only show ${item.repo}`}
+                            className='truncate font-medium hover:text-white hover:underline'
+                        >
+                            {item.repo}
+                        </button>
                         <span>#{item.number}</span>
                         {item.draft && (
                             <span className='rounded bg-white/10 px-1.5 text-[10px] font-semibold uppercase'>

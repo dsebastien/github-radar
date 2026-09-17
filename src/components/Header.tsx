@@ -8,9 +8,21 @@ interface Props {
     onLogin: () => void
     onLogout: () => void
     onSettings: () => void
+    /** Present when there is something to refresh. */
+    onRefresh: (() => void) | null
+    refreshing: boolean
 }
 
-export function Header({ viewer, viewerLoading, rateLimit, onLogin, onLogout, onSettings }: Props) {
+export function Header({
+    viewer,
+    viewerLoading,
+    rateLimit,
+    onLogin,
+    onLogout,
+    onSettings,
+    onRefresh,
+    refreshing
+}: Props) {
     return (
         <header className='border-line sticky top-0 z-30 border-b bg-[#37404c]/85 backdrop-blur'>
             <div className='mx-auto flex max-w-7xl items-center gap-3 px-4 py-3'>
@@ -28,6 +40,19 @@ export function Header({ viewer, viewerLoading, rateLimit, onLogin, onLogout, on
                         >
                             {rateLimit.remaining}/{rateLimit.limit}
                         </span>
+                    )}
+                    {onRefresh && (
+                        <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={onRefresh}
+                            disabled={refreshing}
+                            title='Refresh now'
+                            aria-label='Refresh'
+                        >
+                            {refreshing ? <Spinner /> : <RefreshIcon />}
+                            <span className='hidden sm:inline'>Refresh</span>
+                        </Button>
                     )}
                     <Button
                         variant='ghost'
@@ -83,6 +108,14 @@ function RadarLogo() {
             />
             <circle cx='32' cy='32' r='13' fill='none' stroke='#ff1493' strokeWidth='5' />
             <circle cx='32' cy='32' r='4' fill='#ff1493' />
+        </svg>
+    )
+}
+
+function RefreshIcon() {
+    return (
+        <svg viewBox='0 0 16 16' width='16' height='16' fill='currentColor' aria-hidden>
+            <path d='M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z' />
         </svg>
     )
 }

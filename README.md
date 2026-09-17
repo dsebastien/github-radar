@@ -10,6 +10,7 @@ Static, private, and generic: it runs entirely in your browser, talks only to `a
 
 - **Sources**: any mix of GitHub users, organizations and single repositories. Paste a login, `org:name`, `owner/repo` or a GitHub URL.
 - **Optional login** with a fine-grained personal access token: private repositories, a much higher API rate limit, and automatic inclusion of your own account and every organization you belong to.
+- **Focus**: click a source to see only its items (click again to widen back); click a repository name on any card to filter down to that repository.
 - **Per-source visibility**: an eye toggle on each source shows or hides its items without removing it; each source shows how many items it contributes.
 - **Filters**: full-text (title, repo, `#number`, author, label), issue/PR, open/closed, labels, repos, authors, assignees, draft PRs, and "mine" shortcuts (assigned to me, by me, involved).
 - **Needs-attention signals**: stale (30+ days idle), dormant (90+ days), unlabeled, unassigned, draft.

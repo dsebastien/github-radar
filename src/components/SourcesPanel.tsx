@@ -2,7 +2,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { parseSource, serializeSources, sourceKey, sourceLabel } from '@/lib/sources'
 import type { Source, Viewer } from '@/lib/types'
-import { Button, SectionTitle } from './ui'
+import { Button, ExternalIcon, SectionTitle } from './ui'
 
 interface Props {
     sources: Source[]
@@ -16,6 +16,9 @@ interface Props {
     /** Items per source key. */
     counts: Record<string, number>
     onToggleHidden: (s: Source) => void
+    /** Source key that is currently the only visible one, if any. */
+    focused: string | null
+    onFocus: (s: Source) => void
 }
 
 const KIND_ICON: Record<Source['kind'], string> = { user: '@', org: '⌂', repo: '⎇' }
@@ -29,7 +32,9 @@ export function SourcesPanel({
     onToast,
     hidden,
     counts,
-    onToggleHidden
+    onToggleHidden,
+    focused,
+    onFocus
 }: Props) {
     const [input, setInput] = useState('')
     const [invalid, setInvalid] = useState(false)
@@ -116,16 +121,31 @@ export function SourcesPanel({
                             >
                                 {KIND_ICON[s.kind]}
                             </span>
+                            <button
+                                type='button'
+                                onClick={() => onFocus(s)}
+                                title={
+                                    focused === sourceKey(s)
+                                        ? 'Show every source again'
+                                        : `Only show ${s.value}`
+                                }
+                                className={clsx(
+                                    'min-w-0 truncate text-left font-medium hover:underline',
+                                    isHidden && 'line-through',
+                                    focused === sourceKey(s) && 'text-secondary-text'
+                                )}
+                            >
+                                {s.value}
+                            </button>
                             <a
                                 href={`https://github.com/${s.value}`}
                                 target='_blank'
                                 rel='noreferrer'
-                                className={clsx(
-                                    'truncate font-medium hover:underline',
-                                    isHidden && 'line-through'
-                                )}
+                                className='text-faint hover:text-white'
+                                title='Open on GitHub'
+                                aria-label={`Open ${s.value} on GitHub`}
                             >
-                                {s.value}
+                                <ExternalIcon />
                             </a>
                             <span className='text-faint ml-auto font-mono text-xs tabular-nums'>
                                 {counts[sourceKey(s)] ?? 0}
@@ -157,9 +177,22 @@ export function SourcesPanel({
                             <span className='w-4 text-center font-mono text-xs'>
                                 {KIND_ICON[s.kind]}
                             </span>
-                            <span className={clsx('truncate', isHidden && 'line-through')}>
+                            <button
+                                type='button'
+                                onClick={() => onFocus(s)}
+                                title={
+                                    focused === sourceKey(s)
+                                        ? 'Show every source again'
+                                        : `Only show ${s.value}`
+                                }
+                                className={clsx(
+                                    'min-w-0 truncate text-left hover:underline',
+                                    isHidden && 'line-through',
+                                    focused === sourceKey(s) && 'text-secondary-text'
+                                )}
+                            >
                                 {s.value}
-                            </span>
+                            </button>
                             <span className='text-faint ml-auto text-[10px] uppercase'>mine</span>
                             <span className='text-faint font-mono text-xs tabular-nums'>
                                 {counts[sourceKey(s)] ?? 0}

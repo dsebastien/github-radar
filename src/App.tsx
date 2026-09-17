@@ -95,6 +95,25 @@ export function App() {
         () => countBySource(radar.items, radar.effective),
         [radar.items, radar.effective]
     )
+    // A source is "focused" when it is the only visible one among the effective sources.
+    const focusedSource = useMemo(() => {
+        const hidden = new Set(filters.hiddenSources)
+        const visible = radar.effective.filter((s) => !hidden.has(sourceKey(s)))
+        return radar.effective.length > 1 && visible.length === 1 ? sourceKey(visible[0]!) : null
+    }, [filters.hiddenSources, radar.effective])
+    const focusSource = (s: Source) =>
+        setFilters((f) => ({
+            ...f,
+            hiddenSources:
+                focusedSource === sourceKey(s)
+                    ? []
+                    : radar.effective.map(sourceKey).filter((k) => k !== sourceKey(s))
+        }))
+    const focusRepo = (repo: string) =>
+        setFilters((f) => ({
+            ...f,
+            repos: f.repos.length === 1 && f.repos[0] === repo ? [] : [repo]
+        }))
     const toggleSource = (s: Source) =>
         setFilters((f) => {
             const key = sourceKey(s)
@@ -130,6 +149,8 @@ export function App() {
                 onLogin={() => setDialog('login')}
                 onLogout={logout}
                 onSettings={() => setDialog('settings')}
+                onRefresh={empty ? null : () => radar.refresh('auto')}
+                refreshing={radar.loading}
             />
             <Hero empty={empty} />
             <main className='mx-auto grid max-w-7xl grid-cols-1 gap-5 px-4 pb-24 lg:grid-cols-[19rem_1fr]'>
@@ -144,6 +165,8 @@ export function App() {
                         hidden={filters.hiddenSources}
                         counts={sourceCounts}
                         onToggleHidden={toggleSource}
+                        focused={focusedSource}
+                        onFocus={focusSource}
                     />
                     {!radar.viewer && !radar.viewerLoading && (
                         <div className='bg-surface border-line rounded-xl border p-4 text-sm'>
@@ -258,6 +281,7 @@ export function App() {
                                         now={now}
                                         selected={item.id === selectedId}
                                         onSelect={() => setSelectedId(item.id)}
+                                        onRepoClick={focusRepo}
                                         onLabelClick={(name) =>
                                             setFilters((f) => ({
                                                 ...f,
