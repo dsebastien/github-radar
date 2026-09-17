@@ -2,7 +2,7 @@
 
 Keep every open GitHub issue and pull request across the users, organizations and repositories you care about on your radar. One page, filters that remember themselves, and actions (upvote, comment, label, assign, close) without leaving the dashboard.
 
-**Live:** https://dsebastien.github.io/github-radar/
+**Live:** https://ghradar.dsebastien.net
 
 Static, private, and generic: it runs entirely in your browser, talks only to `api.github.com`, and starts empty so anyone can point it at their own sources.
 

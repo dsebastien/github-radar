@@ -30,9 +30,9 @@ jobs:
               run: bun run validate
 
             - name: Build
-              # Served from https://<owner>.github.io/<repo>/ — derived from the repo name so forks work unchanged.
-              # Deploying to a custom domain or a user/org root page? Set BASE_PATH to "/".
-              run: BASE_PATH="/${GITHUB_REPOSITORY#*/}/" bun run build
+              # Served from the custom domain in public/CNAME, so assets live at the root.
+              # Forking without a custom domain? Use BASE_PATH="/${GITHUB_REPOSITORY#*/}/" and drop public/CNAME.
+              run: BASE_PATH="/" bun run build
 
             - uses: actions/upload-pages-artifact@v3
               with:

@@ -24,7 +24,7 @@
     "bugs": {
         "url": "https://github.com/dsebastien/github-radar/issues"
     },
-    "homepage": "https://dsebastien.github.io/github-radar/",
+    "homepage": "https://ghradar.dsebastien.net",
     "engines": {
         "node": ">=20.0.0"
     },
