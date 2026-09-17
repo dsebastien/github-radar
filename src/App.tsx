@@ -111,7 +111,7 @@ export function App() {
             />
             <Hero empty={empty} />
             <main className='mx-auto grid max-w-7xl grid-cols-1 gap-5 px-4 pb-24 lg:grid-cols-[19rem_1fr]'>
-                <div className='space-y-5'>
+                <div className='min-w-0 space-y-5'>
                     <SourcesPanel
                         sources={sources}
                         effective={radar.effective}

@@ -78,7 +78,7 @@ export function SourcesPanel({ sources, effective, viewer, onAdd, onRemove, onTo
                     That does not look like a GitHub user, org or repo.
                 </p>
             )}
-            <p className='text-faint mt-2 text-xs'>
+            <p className='text-faint mt-2 text-xs [overflow-wrap:anywhere] break-words'>
                 Examples: <code className='font-mono'>dsebastien</code>,{' '}
                 <code className='font-mono'>org:knowii-oss</code>,{' '}
                 <code className='font-mono'>DeveloPassion/obsidian-starter-kit-plugin</code>

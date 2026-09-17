@@ -65,7 +65,7 @@ export function ItemCard({ item, now, selected, onSelect, onLabelClick }: Props)
                             <span className='text-faint truncate'>◆ {item.milestone}</span>
                         )}
                     </div>
-                    <h3 className='mt-0.5 leading-snug font-semibold'>
+                    <h3 className='mt-0.5 leading-snug font-semibold break-words'>
                         <a
                             href={item.html_url}
                             target='_blank'

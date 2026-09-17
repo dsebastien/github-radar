@@ -27,7 +27,7 @@ export function Hero({ empty }: { empty: boolean }) {
             ))}
             <div className='relative mx-auto max-w-7xl px-4 pt-10 pb-8'>
                 <Pill>Static · private · runs in your browser</Pill>
-                <h1 className='mt-3 text-4xl font-extrabold tracking-tight sm:text-5xl'>
+                <h1 className='mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl md:text-5xl'>
                     Every open issue and PR, <span className='gradient-word'>on your radar</span>.
                 </h1>
                 <p className='text-muted mt-3 max-w-2xl text-base'>
