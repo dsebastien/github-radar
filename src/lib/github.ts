@@ -120,6 +120,18 @@ function readRateLimit(res: Response): RateLimit | null {
     }
 }
 
+/** A 403 is either a permission problem or a rate limit; only the latter is worth a retry. */
+async function isRateLimited(res: Response): Promise<boolean> {
+    if (res.headers.get('retry-after') || res.headers.get('x-ratelimit-remaining') === '0')
+        return true
+    try {
+        const body = (await res.clone().json()) as { message?: string }
+        return /rate limit/i.test(body.message ?? '')
+    } catch {
+        return false
+    }
+}
+
 export interface SearchProgress {
     fetched: number
     total: number
@@ -167,24 +179,38 @@ export class GitHubClient {
                 body: init.body === undefined ? undefined : JSON.stringify(init.body),
                 signal: init.signal ?? null
             })
-        let response = await send()
-        // Secondary rate limit (burst protection): GitHub asks to retry after a delay. Honor it once.
-        if (
-            (response.status === 403 || response.status === 429) &&
-            response.headers.get('retry-after')
-        ) {
-            const seconds = Math.min(120, Number(response.headers.get('retry-after')) || 60)
-            await new Promise<void>((resolve, reject) => {
-                const id = setTimeout(resolve, seconds * 1000)
+        const sleep = (ms: number) =>
+            new Promise<void>((resolve, reject) => {
+                const id = setTimeout(resolve, ms)
                 init.signal?.addEventListener('abort', () => {
                     clearTimeout(id)
                     reject(new DOMException('Aborted', 'AbortError'))
                 })
             })
+        let response = await send()
+        // Rate limited: the per-minute search budget (x-ratelimit-remaining: 0, resets within a
+        // minute), the secondary burst limit (retry-after), or abuse detection (403 without either).
+        // Wait once, then retry, so that a large first load completes instead of failing halfway.
+        const retryAfter = Number(response.headers.get('retry-after'))
+        const resetIn = Number(response.headers.get('x-ratelimit-reset')) * 1000 - Date.now()
+        const exhausted = response.headers.get('x-ratelimit-remaining') === '0' && resetIn < 120_000
+        if (
+            response.status === 429 ||
+            (response.status === 403 && (await isRateLimited(response)))
+        ) {
+            const seconds =
+                retryAfter > 0 ? retryAfter : exhausted ? Math.ceil(resetIn / 1000) + 1 : 60
+            await sleep(Math.min(120, seconds) * 1000)
             response = await send()
         }
         const rateLimit = readRateLimit(response)
         if (rateLimit) this.onRateLimit(rateLimit)
+        // Pace search pagination: the search budget is 10 (anonymous) or 30 (token) requests per
+        // minute. When it is nearly spent, sleep until the window resets instead of tripping the
+        // limit and GitHub's abuse detection.
+        if (response.ok && path.startsWith('/search/') && rateLimit && rateLimit.remaining <= 1) {
+            await sleep(Math.min(90_000, Math.max(0, rateLimit.resetAt - Date.now() + 1000)))
+        }
         if (!response.ok) {
             let message = `${response.status} ${response.statusText}`
             try {
