@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FilterBar } from './components/FilterBar'
 import { Header } from './components/Header'
@@ -112,6 +113,23 @@ export function App() {
     const limit = page.key === pageKey ? page.limit : PAGE_SIZE
     const visible = useMemo(() => shown.slice(0, limit), [shown, limit])
     const groups = useMemo(() => groupItems(visible, filters.group), [visible, filters.group])
+    // Collapsed groups, remembered per grouping mode.
+    const [collapsed, setCollapsed] = usePersistedState<Record<string, string[]>>(
+        'collapsedGroups',
+        {}
+    )
+    const collapsedKeys = useMemo(
+        () => new Set(collapsed[filters.group] ?? []),
+        [collapsed, filters.group]
+    )
+    const setCollapsedKeys = (keys: string[]) =>
+        setCollapsed((c) => ({ ...c, [filters.group]: keys }))
+    const toggleGroup = (key: string) =>
+        setCollapsedKeys(
+            collapsedKeys.has(key)
+                ? [...collapsedKeys].filter((k) => k !== key)
+                : [...collapsedKeys, key]
+        )
     const sourceCounts = useMemo(
         () => countBySource(radar.items, radar.effective),
         [radar.items, radar.effective]
@@ -288,6 +306,24 @@ export function App() {
                         />
                     )}
 
+                    {!empty && filters.group !== 'none' && groups.length > 1 && (
+                        <div className='text-faint flex items-center justify-end gap-3 text-xs'>
+                            <button
+                                type='button'
+                                onClick={() => setCollapsedKeys(groups.map((g) => g.key))}
+                                className='hover:text-white'
+                            >
+                                Collapse all
+                            </button>
+                            <button
+                                type='button'
+                                onClick={() => setCollapsedKeys([])}
+                                className='hover:text-white'
+                            >
+                                Expand all
+                            </button>
+                        </div>
+                    )}
                     {empty ? (
                         <EmptyState />
                     ) : shown.length === 0 && !radar.loading ? (
@@ -313,30 +349,49 @@ export function App() {
                             <section key={g.key} className='grid gap-2 2xl:grid-cols-2'>
                                 {g.key && (
                                     <h2 className='mt-2 flex items-center gap-2 text-sm font-extrabold 2xl:col-span-2'>
-                                        {g.key}
-                                        <span className='text-faint font-mono text-xs'>
-                                            {g.items.length}
-                                        </span>
+                                        <button
+                                            type='button'
+                                            onClick={() => toggleGroup(g.key)}
+                                            aria-expanded={!collapsedKeys.has(g.key)}
+                                            className='flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-white/8'
+                                        >
+                                            <span
+                                                aria-hidden
+                                                className={clsx(
+                                                    'text-faint inline-block text-[10px] transition-transform',
+                                                    collapsedKeys.has(g.key)
+                                                        ? '-rotate-90'
+                                                        : 'rotate-0'
+                                                )}
+                                            >
+                                                ▼
+                                            </span>
+                                            <span className='truncate'>{g.key}</span>
+                                            <span className='text-faint font-mono text-xs'>
+                                                {g.items.length}
+                                            </span>
+                                        </button>
                                     </h2>
                                 )}
-                                {g.items.map((item) => (
-                                    <ItemCard
-                                        key={item.id}
-                                        item={item}
-                                        now={now}
-                                        selected={item.id === selectedId}
-                                        onSelect={() => setSelectedId(item.id)}
-                                        onRepoClick={focusRepo}
-                                        onLabelClick={(name) =>
-                                            setFilters((f) => ({
-                                                ...f,
-                                                labels: f.labels.includes(name)
-                                                    ? f.labels
-                                                    : [...f.labels, name]
-                                            }))
-                                        }
-                                    />
-                                ))}
+                                {!collapsedKeys.has(g.key) &&
+                                    g.items.map((item) => (
+                                        <ItemCard
+                                            key={item.id}
+                                            item={item}
+                                            now={now}
+                                            selected={item.id === selectedId}
+                                            onSelect={() => setSelectedId(item.id)}
+                                            onRepoClick={focusRepo}
+                                            onLabelClick={(name) =>
+                                                setFilters((f) => ({
+                                                    ...f,
+                                                    labels: f.labels.includes(name)
+                                                        ? f.labels
+                                                        : [...f.labels, name]
+                                                }))
+                                            }
+                                        />
+                                    ))}
                             </section>
                         ))
                     )}
