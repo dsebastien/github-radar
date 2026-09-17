@@ -12,7 +12,7 @@ Two ways exist to gather open items across many repositories: list every reposit
 
 ## Decision
 
-Use the Search API. Sources are chunked into queries under the character limit, pages are fetched at 100 per page, results are merged and deduplicated by item id, and the dashboard flags when a query hit the 1000-result ceiling.
+Use the Search API. Sources are chunked into queries under the character limit, every query is run once per type because GitHub requires `is:issue` or `is:pull-request`, pages are fetched at 100 per page, results are merged and deduplicated by item id, and the dashboard flags when a query hit the 1000-result ceiling.
 
 ## Consequences
 

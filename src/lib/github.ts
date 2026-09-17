@@ -15,6 +15,8 @@ import type {
 const API = 'https://api.github.com'
 /** The Search API never returns more than 1000 results for one query. */
 const SEARCH_CEILING = 1000
+/** Required by the Search API: one of these qualifiers must be present. */
+const ITEM_TYPES = ['is:issue', 'is:pull-request'] as const
 
 export class GitHubError extends Error {
     constructor(
@@ -291,18 +293,18 @@ export class GitHubClient {
             }
         }
 
-        // Widest queries first; a query that hits the ceiling is split per source,
-        // then per type, so that only a single source with 1000+ open items of one
-        // type is ever reported as truncated.
+        // GitHub requires every issue search to name a type (`is:issue` or `is:pull-request`),
+        // so each chunk is fetched once per type. A query that still hits the 1000-result
+        // ceiling is split per source; only a single source with 1000+ open items of one
+        // type is reported as truncated.
         for (const chunk of chunkSources(sources, state)) {
-            if (await fetchAll(buildQuery(chunk, state, extra))) continue
-            const perSource = chunk.length > 1 ? chunk : []
-            const needsTypeSplit: Source[] = chunk.length > 1 ? [] : chunk
-            for (const s of perSource) {
-                if (!(await fetchAll(buildQuery([s], state, extra)))) needsTypeSplit.push(s)
-            }
-            for (const s of needsTypeSplit) {
-                for (const type of ['is:issue', 'is:pr']) {
+            for (const type of ITEM_TYPES) {
+                if (await fetchAll(buildQuery(chunk, state, [...extra, type]))) continue
+                if (chunk.length === 1) {
+                    truncated = true
+                    continue
+                }
+                for (const s of chunk) {
                     if (!(await fetchAll(buildQuery([s], state, [...extra, type]))))
                         truncated = true
                 }
