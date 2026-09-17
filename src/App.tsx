@@ -198,7 +198,7 @@ export function App() {
                 refreshing={radar.loading}
             />
             <Hero empty={empty} />
-            <main className='mx-auto grid max-w-7xl grid-cols-1 gap-5 px-4 pb-24 lg:grid-cols-[19rem_1fr]'>
+            <main className='mx-auto grid max-w-[112rem] grid-cols-1 gap-5 px-4 pb-24 lg:grid-cols-[19rem_1fr] 2xl:grid-cols-[21rem_1fr] 2xl:gap-6 2xl:px-8'>
                 <div className='min-w-0 space-y-5'>
                     <SourcesPanel
                         sources={sources}
@@ -310,9 +310,9 @@ export function App() {
                         </div>
                     ) : (
                         groups.map((g) => (
-                            <section key={g.key} className='space-y-2'>
+                            <section key={g.key} className='grid gap-2 2xl:grid-cols-2'>
                                 {g.key && (
-                                    <h2 className='mt-2 flex items-center gap-2 text-sm font-extrabold'>
+                                    <h2 className='mt-2 flex items-center gap-2 text-sm font-extrabold 2xl:col-span-2'>
                                         {g.key}
                                         <span className='text-faint font-mono text-xs'>
                                             {g.items.length}
@@ -356,7 +356,7 @@ export function App() {
                 </div>
             </main>
 
-            <footer className='text-faint mx-auto max-w-7xl px-4 pb-8 text-center text-xs'>
+            <footer className='text-faint mx-auto max-w-[112rem] px-4 pb-8 text-center text-xs'>
                 <a
                     href='https://github.com/dsebastien/github-radar'
                     target='_blank'

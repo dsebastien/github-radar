@@ -25,7 +25,7 @@ export function Header({
 }: Props) {
     return (
         <header className='border-line sticky top-0 z-30 border-b bg-[#37404c]/85 backdrop-blur'>
-            <div className='mx-auto flex max-w-7xl items-center gap-3 px-4 py-3'>
+            <div className='mx-auto flex max-w-[112rem] items-center gap-3 px-4 py-3'>
                 <a href='./' className='flex items-center gap-2.5'>
                     <RadarLogo />
                     <span className='text-lg font-extrabold tracking-tight'>
