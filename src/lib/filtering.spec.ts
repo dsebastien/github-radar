@@ -6,6 +6,7 @@ import {
     countBySource,
     groupItems,
     itemSources,
+    pruneFilters,
     sortItems
 } from './filtering'
 import { DEFAULT_FILTERS, type Item } from './types'
@@ -110,6 +111,23 @@ describe('source visibility', () => {
         expect(run(['user:o'])).toEqual([2])
         expect(run(['user:o', 'repo:o/other'])).toEqual([])
         expect(run(['repo:o/other'])).toEqual([1, 2, 3])
+    })
+    test('pruneFilters drops selections no visible item can satisfy', () => {
+        const f = { ...DEFAULT_FILTERS, repos: ['o/other'], labels: ['bug'], authors: ['bob'] }
+        // Nothing hidden: everything still matches, same object back.
+        expect(pruneFilters(f, fixtures, sources)).toBe(f)
+        // Hiding user O leaves item 2 only (o/other, by bob, unlabeled): the label selection goes.
+        const pruned = pruneFilters({ ...f, hiddenSources: ['user:o'] }, fixtures, sources)
+        expect(pruned.repos).toEqual(['o/other'])
+        expect(pruned.authors).toEqual(['bob'])
+        expect(pruned.labels).toEqual([])
+        // Hiding everything empties every selection.
+        const none = pruneFilters(
+            { ...f, hiddenSources: ['user:o', 'repo:o/other'] },
+            fixtures,
+            sources
+        )
+        expect([none.repos, none.labels, none.authors]).toEqual([[], [], []])
     })
     test('countBySource', () => {
         expect(countBySource(fixtures, sources)).toEqual({ 'user:o': 4, 'repo:o/other': 1 })

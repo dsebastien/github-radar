@@ -115,6 +115,7 @@ export function SourcesPanel({
                                 isHidden && 'opacity-50'
                             )}
                         >
+                            <EyeButton hidden={isHidden} onClick={() => onToggleHidden(s)} />
                             <span
                                 className='text-secondary-text w-4 text-center font-mono text-xs'
                                 title={s.kind}
@@ -150,11 +151,10 @@ export function SourcesPanel({
                             <span className='text-faint ml-auto font-mono text-xs tabular-nums'>
                                 {counts[sourceKey(s)] ?? 0}
                             </span>
-                            <EyeButton hidden={isHidden} onClick={() => onToggleHidden(s)} />
                             <button
                                 type='button'
                                 onClick={() => onRemove(s)}
-                                className='text-faint rounded px-1 text-base leading-none opacity-0 transition group-hover:opacity-100 hover:text-white focus:opacity-100'
+                                className='text-faint ml-2 rounded px-1 text-base leading-none opacity-0 transition group-hover:opacity-100 hover:text-white focus:opacity-100'
                                 aria-label={`Remove ${s.value}`}
                                 title='Remove'
                             >
@@ -174,6 +174,7 @@ export function SourcesPanel({
                             )}
                             title={`Added automatically because ${viewer?.login ?? 'you'} are logged in`}
                         >
+                            <EyeButton hidden={isHidden} onClick={() => onToggleHidden(s)} />
                             <span className='w-4 text-center font-mono text-xs'>
                                 {KIND_ICON[s.kind]}
                             </span>
@@ -197,7 +198,6 @@ export function SourcesPanel({
                             <span className='text-faint font-mono text-xs tabular-nums'>
                                 {counts[sourceKey(s)] ?? 0}
                             </span>
-                            <EyeButton hidden={isHidden} onClick={() => onToggleHidden(s)} />
                         </li>
                     )
                 })}

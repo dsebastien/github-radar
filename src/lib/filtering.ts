@@ -55,6 +55,48 @@ export function itemSources(item: Item, sources: Source[]): Source[] {
     )
 }
 
+/** Items whose every source is hidden are gone from the list; the rest remain. */
+export function visibleBySources(
+    items: Item[],
+    sources: Source[],
+    hiddenSources: string[]
+): Item[] {
+    if (hiddenSources.length === 0) return items
+    const hidden = new Set(hiddenSources)
+    return items.filter((item) => {
+        const origins = itemSources(item, sources)
+        return origins.length === 0 || origins.some((s) => !hidden.has(sourceKey(s)))
+    })
+}
+
+/**
+ * Drop repo, label, author and assignee selections that no visible item can
+ * satisfy any more (after hiding, focusing or removing a source), so the list
+ * never goes empty because of a filter the user cannot see the reason for.
+ */
+export function pruneFilters(f: Filters, items: Item[], sources: Source[]): Filters {
+    const visible = visibleBySources(items, sources, f.hiddenSources)
+    const lower = (v: string) => v.toLowerCase()
+    const repos = new Set(visible.map((i) => lower(i.repo)))
+    const labels = new Set(visible.flatMap((i) => i.labels.map((l) => lower(l.name))))
+    const authors = new Set(visible.flatMap((i) => (i.author ? [lower(i.author.login)] : [])))
+    const assignees = new Set(visible.flatMap((i) => i.assignees.map((a) => lower(a.login))))
+    const keep = (list: string[], set: Set<string>) => list.filter((v) => set.has(lower(v)))
+    const next = {
+        ...f,
+        repos: keep(f.repos, repos),
+        labels: keep(f.labels, labels),
+        authors: keep(f.authors, authors),
+        assignees: keep(f.assignees, assignees)
+    }
+    const unchanged =
+        next.repos.length === f.repos.length &&
+        next.labels.length === f.labels.length &&
+        next.authors.length === f.authors.length &&
+        next.assignees.length === f.assignees.length
+    return unchanged ? f : next
+}
+
 /** Items per source key, for the sources panel. */
 export function countBySource(items: Item[], sources: Source[]): Record<string, number> {
     const counts: Record<string, number> = {}

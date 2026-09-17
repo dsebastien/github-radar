@@ -12,7 +12,16 @@ import { Toasts, type Toast } from './components/Toasts'
 import { Button, Spinner } from './components/ui'
 import { usePersistedState } from './hooks/usePersistedState'
 import { useRadar } from './hooks/useRadar'
-import { applyFilters, computeFacets, countBySource, groupItems, sortItems } from './lib/filtering'
+import {
+    applyFilters,
+    computeFacets,
+    countBySource,
+    groupItems,
+    itemSources,
+    pruneFilters,
+    sortItems,
+    visibleBySources
+} from './lib/filtering'
 import { addSource, deserializeSources, removeSource, sourceKey } from './lib/sources'
 import { load, remove, save } from './lib/storage'
 import {
@@ -70,9 +79,21 @@ export function App() {
         toast('GitHub rejected the token, so you were logged out. Log in again with a valid token.')
     }, [logout, toast])
 
-    const radar = useRadar(token, sources, filters.state, settings, onAuthError)
+    const radar = useRadar(
+        token,
+        sources,
+        filters.hiddenSources,
+        filters.state,
+        settings,
+        onAuthError
+    )
 
-    const facets = useMemo(() => computeFacets(radar.items), [radar.items])
+    // Items from hidden sources stay cached but leave the stats and facets.
+    const scoped = useMemo(
+        () => visibleBySources(radar.items, radar.effective, filters.hiddenSources),
+        [radar.items, radar.effective, filters.hiddenSources]
+    )
+    const facets = useMemo(() => computeFacets(scoped), [scoped])
     const shown = useMemo(
         () =>
             sortItems(
@@ -102,13 +123,19 @@ export function App() {
         return radar.effective.length > 1 && visible.length === 1 ? sourceKey(visible[0]!) : null
     }, [filters.hiddenSources, radar.effective])
     const focusSource = (s: Source) =>
-        setFilters((f) => ({
-            ...f,
-            hiddenSources:
-                focusedSource === sourceKey(s)
-                    ? []
-                    : radar.effective.map(sourceKey).filter((k) => k !== sourceKey(s))
-        }))
+        setFilters((f) =>
+            pruneFilters(
+                {
+                    ...f,
+                    hiddenSources:
+                        focusedSource === sourceKey(s)
+                            ? []
+                            : radar.effective.map(sourceKey).filter((k) => k !== sourceKey(s))
+                },
+                radar.items,
+                radar.effective
+            )
+        )
     const focusRepo = (repo: string) =>
         setFilters((f) => ({
             ...f,
@@ -117,13 +144,31 @@ export function App() {
     const toggleSource = (s: Source) =>
         setFilters((f) => {
             const key = sourceKey(s)
-            return {
-                ...f,
-                hiddenSources: f.hiddenSources.includes(key)
-                    ? f.hiddenSources.filter((k) => k !== key)
-                    : [...f.hiddenSources, key]
-            }
+            return pruneFilters(
+                {
+                    ...f,
+                    hiddenSources: f.hiddenSources.includes(key)
+                        ? f.hiddenSources.filter((k) => k !== key)
+                        : [...f.hiddenSources, key]
+                },
+                radar.items,
+                radar.effective
+            )
         })
+    const removeSourceAndPrune = (s: Source) => {
+        const remaining = radar.effective.filter((e) => sourceKey(e) !== sourceKey(s))
+        setSources((list) => removeSource(list, s))
+        setFilters((f) => {
+            const hiddenSources = f.hiddenSources.filter((k) => k !== sourceKey(s))
+            return pruneFilters(
+                { ...f, hiddenSources },
+                visibleBySources(radar.items, remaining, []).filter(
+                    (i) => itemSources(i, remaining).length > 0
+                ),
+                remaining
+            )
+        })
+    }
     const selected =
         selectedId === null ? null : (radar.items.find((i) => i.id === selectedId) ?? null)
 
@@ -160,7 +205,7 @@ export function App() {
                         effective={radar.effective}
                         viewer={radar.viewer}
                         onAdd={(s) => setSources((list) => addSource(list, s))}
-                        onRemove={(s) => setSources((list) => removeSource(list, s))}
+                        onRemove={removeSourceAndPrune}
                         onToast={toast}
                         hidden={filters.hiddenSources}
                         counts={sourceCounts}
@@ -194,7 +239,7 @@ export function App() {
                     {!empty && (
                         <div className='bg-surface border-line shadow-card rounded-xl border p-4'>
                             <div className='mb-3 flex flex-wrap items-center gap-3'>
-                                <StatsRow all={radar.items} shown={shown} now={now} />
+                                <StatsRow all={scoped} shown={shown} now={now} />
                                 <div className='text-muted ml-auto flex items-center gap-2 text-xs'>
                                     {radar.loading ? (
                                         <>

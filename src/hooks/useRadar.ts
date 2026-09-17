@@ -1,23 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitHubClient, GitHubError, type SearchProgress } from '@/lib/github'
+import { itemSources } from '@/lib/filtering'
 import { effectiveSources, sourceKey } from '@/lib/sources'
 import { load, remove, save } from '@/lib/storage'
 import type { Item, RateLimit, Settings, Source, StateFilter, Viewer } from '@/lib/types'
 
-interface Cache {
-    key: string
-    items: Item[]
-    /** When the last (incremental or full) fetch started. */
+interface SourceStamp {
+    /** When the last (incremental or full) fetch of this source started. */
     fetchedAt: number
-    /** When the last full fetch started; incremental fetches merge on top of it. */
+    /** When the last full fetch of this source started. */
     fullFetchedAt: number
+}
+
+interface Cache {
+    /** The item state the cache was fetched for; a different state discards it. */
+    state: StateFilter
+    items: Item[]
+    /** Per source key: when it was last fetched. Sources without a stamp were never fetched. */
+    stamps: Record<string, SourceStamp>
     truncated: boolean
 }
 
 /** Incremental fetches overlap the previous window slightly to survive clock skew. */
 const OVERLAP_MS = 5 * 60_000
-/** After this long, the next refresh is a full one so drift (transfers, deletions) is corrected. */
+/** After this long, the next refresh of a source is a full one so drift (transfers, deletions) is corrected. */
 const FULL_REFRESH_MS = 6 * 60 * 60_000
+/** A source fetched this recently is not refetched just because it became visible again. */
+const FRESH_MS = 60_000
 
 export interface RadarState {
     client: GitHubClient
@@ -30,21 +39,33 @@ export interface RadarState {
     progress: SearchProgress | null
     error: string | null
     rateLimit: RateLimit | null
+    /** Every source that could be searched (configured + the viewer's own). */
     effective: Source[]
-    /** Incremental by default; `full` discards the cache and refetches everything. */
+    /** Incremental by default; `full` refetches every visible source from scratch. */
     refresh: (mode?: 'auto' | 'full') => void
     patchItem: (id: number, patch: Partial<Item>) => void
 }
 
 const CACHE_KEY = 'cache'
 
+function loadCache(): Cache | null {
+    const c = load<Cache | null>(CACHE_KEY, null)
+    return c && typeof c.stamps === 'object' && Array.isArray(c.items) ? c : null
+}
+
 /**
  * Owns everything that talks to GitHub: the client, the viewer, the item list,
  * its cache, and refresh scheduling. The UI only reads state and calls refresh().
+ *
+ * Fetches are scoped to the *visible* sources (effective minus hidden): hiding a
+ * source aborts and restarts any in-flight fetch without it, and showing a source
+ * only fetches it when its cached items are missing or stale. Results merge into
+ * one cache stamped per source, so toggling visibility is instant.
  */
 export function useRadar(
     token: string | null,
     sources: Source[],
+    hiddenSources: string[],
     state: StateFilter,
     settings: Settings,
     onAuthError: () => void
@@ -81,15 +102,16 @@ export function useRadar(
         () => effectiveSources(sources, viewer, settings.includeMine),
         [sources, viewer, settings.includeMine]
     )
-    const cacheKey = useMemo(
-        () => `${state}|${effective.map(sourceKey).sort().join(',')}`,
-        [effective, state]
+    const visible = useMemo(() => {
+        const hidden = new Set(hiddenSources)
+        return effective.filter((s) => !hidden.has(sourceKey(s)))
+    }, [effective, hiddenSources])
+    const scopeKey = useMemo(
+        () => `${state}|${visible.map(sourceKey).sort().join(',')}`,
+        [visible, state]
     )
 
-    const [cache, setCache] = useState<Cache | null>(() => {
-        const c = load<Cache | null>(CACHE_KEY, null)
-        return c && typeof c.fullFetchedAt === 'number' ? c : null
-    })
+    const [cache, setCache] = useState<Cache | null>(loadCache)
     const [loading, setLoading] = useState(false)
     const [progress, setProgress] = useState<SearchProgress | null>(null)
     const [error, setError] = useState<string | null>(null)
@@ -99,13 +121,15 @@ export function useRadar(
         cacheRef.current = cache
     }, [cache])
 
-    /** A full fetch replaces the cache; an incremental one merges items updated since the last fetch. */
+    /** The cache, unless it was fetched for another item state. */
+    const usable = cache && cache.state === state ? cache : null
+
     const run = useCallback(
         async (mode: 'auto' | 'full' = 'auto') => {
             abortRef.current?.abort()
-            if (effective.length === 0) {
-                setCache(null)
-                remove(CACHE_KEY)
+            if (visible.length === 0) {
+                setLoading(false)
+                setProgress(null)
                 setError(null)
                 return
             }
@@ -114,38 +138,71 @@ export function useRadar(
             setLoading(true)
             setError(null)
             setProgress(null)
-            const base = cacheRef.current
-            const incremental =
-                mode === 'auto' &&
-                base !== null &&
-                base.key === cacheKey &&
-                Date.now() - base.fullFetchedAt < FULL_REFRESH_MS
+
+            const base =
+                cacheRef.current && cacheRef.current.state === state ? cacheRef.current : null
+            const now = Date.now()
+            const stamp = (s: Source) => base?.stamps[sourceKey(s)]
+            // Sources never fetched, or fetched too long ago, need a full pass; the rest go incremental.
+            const full =
+                mode === 'full'
+                    ? visible
+                    : visible.filter((s) => {
+                          const st = stamp(s)
+                          return !st || now - st.fullFetchedAt >= FULL_REFRESH_MS
+                      })
+            const fullKeys = new Set(full.map(sourceKey))
+            const partial = visible.filter((s) => !fullKeys.has(sourceKey(s)))
+
             try {
-                const startedAt = Date.now()
-                const result = await client.search(effective, state, {
-                    signal: controller.signal,
-                    onProgress: setProgress,
-                    ...(incremental
-                        ? { since: new Date(base.fetchedAt - OVERLAP_MS).toISOString() }
-                        : {})
-                })
-                if (controller.signal.aborted) return
-                let items = result.items
-                if (incremental) {
-                    const byId = new Map(base.items.map((i) => [i.id, i]))
+                const byId = new Map<number, Item>((base?.items ?? []).map((i) => [i.id, i]))
+                let truncated = base?.truncated ?? false
+                const stamps: Record<string, SourceStamp> = { ...(base?.stamps ?? {}) }
+                let fetchedBefore = 0
+                const onProgress = (p: SearchProgress) =>
+                    setProgress({
+                        ...p,
+                        fetched: fetchedBefore + p.fetched,
+                        total: fetchedBefore + p.total
+                    })
+
+                if (full.length > 0) {
+                    const result = await client.search(full, state, {
+                        signal: controller.signal,
+                        onProgress
+                    })
+                    if (controller.signal.aborted) return
+                    // Replace what we knew about these sources with the fresh, complete result.
+                    for (const [id, item] of byId) {
+                        if (itemSources(item, full).length > 0) byId.delete(id)
+                    }
+                    for (const item of result.items) byId.set(item.id, item)
+                    truncated = result.truncated
+                    for (const s of full)
+                        stamps[sourceKey(s)] = { fetchedAt: now, fullFetchedAt: now }
+                    fetchedBefore = result.items.length
+                }
+                if (partial.length > 0) {
+                    const oldest = Math.min(...partial.map((s) => stamp(s)?.fetchedAt ?? now))
+                    const result = await client.search(partial, state, {
+                        signal: controller.signal,
+                        onProgress,
+                        since: new Date(oldest - OVERLAP_MS).toISOString()
+                    })
+                    if (controller.signal.aborted) return
                     for (const item of result.items) {
                         if (state === 'all' || item.state === state) byId.set(item.id, item)
                         else byId.delete(item.id)
                     }
-                    items = Array.from(byId.values())
+                    for (const s of partial) {
+                        const st = stamp(s)
+                        stamps[sourceKey(s)] = {
+                            fetchedAt: now,
+                            fullFetchedAt: st?.fullFetchedAt ?? now
+                        }
+                    }
                 }
-                const next: Cache = {
-                    key: cacheKey,
-                    items,
-                    fetchedAt: startedAt,
-                    fullFetchedAt: incremental ? base.fullFetchedAt : startedAt,
-                    truncated: incremental ? base.truncated : result.truncated
-                }
+                const next: Cache = { state, items: Array.from(byId.values()), stamps, truncated }
                 setCache(next)
                 save(CACHE_KEY, next)
             } catch (e: unknown) {
@@ -159,24 +216,30 @@ export function useRadar(
                 }
             }
         },
-        [client, effective, state, cacheKey, onAuthError]
+        [client, visible, state, onAuthError]
     )
 
-    // Fetch when the effective query changes, but wait for the viewer when a token is set
-    // so that "include mine" does not trigger a second, wider fetch a moment later.
+    // Fetch when the visible scope changes: an in-flight fetch is aborted and restarted for the
+    // new scope; sources with fresh cached items are left alone. Waits for the viewer when a
+    // token is set so that "include mine" does not trigger a second, wider fetch a moment later.
     const waitingForViewer = token !== null && viewerLoading
     useEffect(() => {
         if (waitingForViewer) return
-        const fresh = cache?.key === cacheKey && Date.now() - cache.fetchedAt < 60_000
-        if (fresh) return
+        const inFlight = abortRef.current !== null && !abortRef.current.signal.aborted
+        const c = cacheRef.current
+        const needsFetch = visible.some((s) => {
+            const st = c && c.state === state ? c.stamps[sourceKey(s)] : undefined
+            return !st || Date.now() - st.fetchedAt >= FRESH_MS
+        })
+        if (!inFlight && !needsFetch) return
         const id = window.setTimeout(() => void run('auto'), 0)
         return () => window.clearTimeout(id)
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when the query identity changes
-    }, [cacheKey, waitingForViewer])
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when the scope identity changes
+    }, [scopeKey, waitingForViewer])
 
     useEffect(() => {
         if (settings.refreshMinutes <= 0) return
-        const id = window.setInterval(() => void run(), settings.refreshMinutes * 60_000)
+        const id = window.setInterval(() => void run('auto'), settings.refreshMinutes * 60_000)
         return () => window.clearInterval(id)
     }, [run, settings.refreshMinutes])
 
@@ -189,15 +252,29 @@ export function useRadar(
         })
     }, [])
 
-    const matches = cache?.key === cacheKey
+    // While a fetch is running, show the pages already received on top of the cache.
+    const items = useMemo(() => {
+        const cached = usable?.items ?? []
+        if (!loading || !progress || progress.items.length === 0) return cached
+        const byId = new Map(cached.map((i) => [i.id, i]))
+        for (const item of progress.items) byId.set(item.id, item)
+        return Array.from(byId.values())
+    }, [usable, loading, progress])
+
+    const fetchedAt = useMemo(() => {
+        if (!usable || visible.length === 0) return null
+        const times = visible.map((s) => usable.stamps[sourceKey(s)]?.fetchedAt ?? 0)
+        const oldest = Math.min(...times)
+        return oldest > 0 ? oldest : null
+    }, [usable, visible])
+
     return {
         client,
         viewer,
         viewerLoading,
-        // While a full load is running with no matching cache, show the pages already fetched.
-        items: matches ? cache.items : loading && progress ? progress.items : [],
-        fetchedAt: matches ? cache.fetchedAt : null,
-        truncated: matches ? cache.truncated : false,
+        items,
+        fetchedAt,
+        truncated: usable?.truncated ?? false,
         loading,
         progress,
         error,
@@ -206,4 +283,8 @@ export function useRadar(
         refresh: (mode = 'auto') => void run(mode),
         patchItem
     }
+}
+
+export function clearRadarCache(): void {
+    remove(CACHE_KEY)
 }
