@@ -135,6 +135,8 @@ async function isRateLimited(res: Response): Promise<boolean> {
 export interface SearchProgress {
     fetched: number
     total: number
+    /** Everything fetched so far, so the UI can render while pages keep arriving. */
+    items: Item[]
 }
 
 export interface SearchResult {
@@ -272,7 +274,7 @@ export class GitHubClient {
         const extra = opts.extra ?? []
         const byId = new Map<number, Item>()
         let truncated = false
-        const progress: SearchProgress = { fetched: 0, total: 0 }
+        const progress = { fetched: 0, total: 0 }
 
         /** Fetch every page of one query. Returns false when the 1000-result ceiling cut it short. */
         const fetchAll = async (q: string): Promise<boolean> => {
@@ -282,7 +284,7 @@ export class GitHubClient {
                 if (page === 1) progress.total += Math.min(data.total_count, SEARCH_CEILING)
                 for (const raw of data.items) byId.set(raw.id, toItem(raw))
                 progress.fetched += data.items.length
-                opts.onProgress?.({ ...progress })
+                opts.onProgress?.({ ...progress, items: Array.from(byId.values()) })
                 const seen = page * 100
                 if (data.items.length < 100 || seen >= data.total_count) return true
                 if (seen >= SEARCH_CEILING) return false

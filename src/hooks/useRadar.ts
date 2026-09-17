@@ -194,7 +194,8 @@ export function useRadar(
         client,
         viewer,
         viewerLoading,
-        items: matches ? cache.items : [],
+        // While a full load is running with no matching cache, show the pages already fetched.
+        items: matches ? cache.items : loading && progress ? progress.items : [],
         fetchedAt: matches ? cache.fetchedAt : null,
         truncated: matches ? cache.truncated : false,
         loading,
