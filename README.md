@@ -17,6 +17,7 @@ Static, private, and generic: it runs entirely in your browser, talks only to `a
 - **Load more**: the list renders 50 cards at a time; a button at the bottom loads the next batch.
 - **Sort and group**: by recent activity, creation date, discussion, or title; group by repository or author.
 - **Actions when logged in**: 👍 upvote, comment (Markdown), add/remove labels, assign/unassign yourself, close/reopen (with confirmation).
+- **Bulk actions** (logged in): a checkbox on every card (shift-click for a range) or "Select all N shown", then add/remove labels, assign/unassign yourself, or close/reopen from a sticky bar. Actions run item by item with a progress counter and a cancel button; failures are listed per item. Options that only fit part of the selection say how many items they apply to.
 - **Persistence**: sources, filters, settings, token and the last result set live in `localStorage`, so the dashboard paints instantly on the next visit and refreshes in the background (interval configurable).
 - **Shareable presets**: `?sources=user:dsebastien,org:knowii-oss,DeveloPassion/obsidian-starter-kit-plugin` pre-fills the sources on first load. Use the "Share this view" button.
 

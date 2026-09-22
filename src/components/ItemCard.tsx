@@ -12,6 +12,9 @@ interface Props {
     now: number
     selected: boolean
     onSelect: () => void
+    /** Present when bulk selection is available (logged in). */
+    checked?: boolean
+    onCheck?: (range: boolean) => void
     onLabelClick: (name: string) => void
     onRepoClick: (repo: string) => void
     onToast: (msg: string) => void
@@ -23,6 +26,8 @@ export function ItemCard({
     now,
     selected,
     onSelect,
+    checked,
+    onCheck,
     onLabelClick,
     onRepoClick,
     onToast
@@ -33,11 +38,26 @@ export function ItemCard({
         <article
             className={clsx(
                 'bg-surface border-line group hover:shadow-card cursor-pointer rounded-xl border p-3.5 transition hover:-translate-y-px',
-                selected && 'ring-secondary-text/60 ring-2'
+                selected && 'ring-secondary-text/60 ring-2',
+                checked && 'border-secondary/70 bg-secondary/10'
             )}
             onClick={onSelect}
         >
             <div className='flex items-start gap-3'>
+                {onCheck && (
+                    <input
+                        type='checkbox'
+                        checked={checked ?? false}
+                        onChange={() => {}}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onCheck(e.shiftKey)
+                        }}
+                        aria-label={`Select ${item.repo}#${item.number}`}
+                        title='Select (shift-click for a range)'
+                        className='accent-secondary mt-1 h-4 w-4 shrink-0 cursor-pointer'
+                    />
+                )}
                 <span
                     className={clsx(
                         'mt-0.5 shrink-0',

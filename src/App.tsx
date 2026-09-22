@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { BulkBar } from './components/BulkBar'
 import { FilterBar } from './components/FilterBar'
 import { Header } from './components/Header'
 import { Hero } from './components/Hero'
@@ -14,6 +15,7 @@ import { Toasts, type Toast } from './components/Toasts'
 import { Button, GitHubIcon, Spinner } from './components/ui'
 import { usePersistedState } from './hooks/usePersistedState'
 import { useRadar } from './hooks/useRadar'
+import { rangeIds } from './lib/bulk'
 import {
     applyFilters,
     computeFacets,
@@ -188,6 +190,30 @@ export function App() {
             )
         })
     }
+    // Bulk selection (logged in only): item ids, and the anchor of shift-click ranges.
+    const [checked, setChecked] = useState<Set<number>>(() => new Set())
+    const [anchor, setAnchor] = useState<number | null>(null)
+    const checkedItems = useMemo(
+        () => radar.items.filter((i) => checked.has(i.id)),
+        [radar.items, checked]
+    )
+    const shownIds = useMemo(() => shown.map((i) => i.id), [shown])
+    const toggleChecked = (id: number, range: boolean) => {
+        setChecked((prev) => {
+            const next = new Set(prev)
+            if (range && anchor !== null) {
+                const on = !prev.has(id)
+                for (const r of rangeIds(shownIds, anchor, id)) {
+                    if (on) next.add(r)
+                    else next.delete(r)
+                }
+            } else if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+        })
+        setAnchor(id)
+    }
+    const allShownChecked = shown.length > 0 && shown.every((i) => checked.has(i.id))
     const selected =
         selectedId === null ? null : (radar.items.find((i) => i.id === selectedId) ?? null)
 
@@ -259,6 +285,22 @@ export function App() {
                         <div className='bg-surface border-line shadow-card rounded-xl border p-4'>
                             <div className='mb-3 flex flex-wrap items-center gap-3'>
                                 <StatsRow all={scoped} shown={shown} now={now} />
+                                {radar.viewer && shown.length > 0 && (
+                                    <Button
+                                        size='sm'
+                                        variant='ghost'
+                                        onClick={() =>
+                                            setChecked(
+                                                allShownChecked ? new Set() : new Set(shownIds)
+                                            )
+                                        }
+                                        title='Select every item matching the filters, for bulk actions'
+                                    >
+                                        {allShownChecked
+                                            ? 'Unselect all'
+                                            : `Select all ${shown.length} shown`}
+                                    </Button>
+                                )}
                                 <div className='text-muted ml-auto flex items-center gap-2 text-xs'>
                                     {radar.loading ? (
                                         <>
@@ -406,6 +448,12 @@ export function App() {
                                             now={now}
                                             selected={item.id === selectedId}
                                             onSelect={() => setSelectedId(item.id)}
+                                            checked={checked.has(item.id)}
+                                            onCheck={
+                                                radar.viewer
+                                                    ? (range) => toggleChecked(item.id, range)
+                                                    : undefined
+                                            }
                                             onRepoClick={focusRepo}
                                             onToast={toast}
                                             onLabelClick={(name) =>
@@ -420,6 +468,16 @@ export function App() {
                                     ))}
                             </section>
                         ))
+                    )}
+                    {radar.viewer && checkedItems.length > 0 && (
+                        <BulkBar
+                            items={checkedItems}
+                            client={radar.client}
+                            viewer={radar.viewer}
+                            onPatch={radar.patchItem}
+                            onToast={toast}
+                            onClear={() => setChecked(new Set())}
+                        />
                     )}
                     {shown.length > visible.length && (
                         <div className='flex flex-col items-center gap-1 py-4'>

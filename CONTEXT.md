@@ -11,6 +11,7 @@ The vocabulary used in code, tests and docs. Use these terms exactly.
 - **Attention flags**: signals that an item may need a human: **stale** (no activity for 30+ days), **dormant** (90+ days), **unlabeled**, **unassigned**, **draft**. Derived from the item and the current time.
 - **Mine**: a filter shortcut relative to the viewer: **assigned** (viewer is an assignee), **authored** (viewer opened it), **involved** (either).
 - **Action**: a write the viewer performs on an item from the dashboard: upvote (a 👍 reaction), comment, set labels, assign or unassign self, close or reopen. Actions require a viewer and a token with write permission.
+- **Selection**: the items checked for a **bulk action**, which runs the same action item by item (never atomically) and reports per-item failures.
 - **Preset**: a list of sources encoded in the page URL (`?sources=`). A preset is imported into the stored sources once, on load, then the URL is cleaned.
 - **Cache**: the last fetched item set, stored locally with the key of the effective sources and state it was fetched for. It lets the dashboard paint instantly and is replaced on every successful refresh.
 - **Repo menu**: the ⧉ button next to any repository name (item card, item panel, repo group header, repo source). It copies the repo's web URL, HTTPS clone URL or SSH clone URL, derived from `owner/name` (see `src/lib/repo.ts`).
