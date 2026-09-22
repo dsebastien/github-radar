@@ -3,3 +3,5 @@ node_modules
 bun.lock
 .claude/
 CHANGELOG.md
+test-results/
+playwright-report/

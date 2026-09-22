@@ -29,6 +29,12 @@ jobs:
             - name: Validate
               run: bun run validate
 
+            - name: Install the Playwright browser
+              run: bunx playwright install --with-deps chromium
+
+            - name: Browser smoke test (mocked GitHub API)
+              run: bun run test:e2e
+
             - name: Build
               # Served from the custom domain in public/CNAME, so assets live at the root.
               # Forking without a custom domain? Use BASE_PATH="/${GITHUB_REPOSITORY#*/}/" and drop public/CNAME.

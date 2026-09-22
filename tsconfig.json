@@ -24,5 +24,12 @@
         "types": ["bun", "vite/client"],
         "paths": { "@/*": ["./src/*"] }
     },
-    "include": ["src", "vite.config.ts", "eslint.config.ts", "commitlint.config.ts"]
+    "include": [
+        "src",
+        "e2e",
+        "vite.config.ts",
+        "eslint.config.ts",
+        "commitlint.config.ts",
+        "playwright.config.ts"
+    ]
 }

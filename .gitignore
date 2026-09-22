@@ -36,3 +36,7 @@ tmp/
 # Caches
 .eslintcache
 *.tsbuildinfo
+
+# Playwright
+test-results/
+playwright-report/
