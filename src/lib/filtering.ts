@@ -50,8 +50,18 @@ function hasAny(values: string[], wanted: string[]): boolean {
     return wanted.some((w) => set.has(w.toLowerCase()))
 }
 
+/**
+ * Created or updated after the previous visit (epoch ms). Nothing is new on a first visit,
+ * when there is no previous visit to compare with.
+ */
+export function isNew(item: Item, lastVisit: number | null): boolean {
+    return lastVisit !== null && Date.parse(item.updated_at) > lastVisit
+}
+
 export interface FilterContext {
     now: number
+    /** When the previous visit ended, for the "new" filter; null on a first visit. */
+    lastVisit?: number | null
     viewerLogin: string | null
     /** The effective sources, used to resolve which source(s) an item came from. */
     sources: Source[]
@@ -140,6 +150,7 @@ export function applyFilters(items: Item[], f: Filters, ctx: FilterContext): Ite
         if (f.type !== 'all' && item.type !== f.type) return false
         if (f.state !== 'all' && item.state !== f.state) return false
         if (f.hideDrafts && item.draft) return false
+        if (f.onlyNew && !isNew(item, ctx.lastVisit ?? null)) return false
         if (f.hiddenSources.length > 0) {
             const hidden = new Set(f.hiddenSources)
             const origins = itemSources(item, ctx.sources)

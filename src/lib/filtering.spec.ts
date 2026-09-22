@@ -5,6 +5,7 @@ import {
     computeFacets,
     countBySource,
     groupItems,
+    isNew,
     itemSources,
     pruneFilters,
     sortItems
@@ -76,6 +77,25 @@ describe('applyFilters', () => {
         expect(run({ assignees: ['bob'] })).toEqual([1])
         expect(run({ state: 'all' })).toEqual([1, 2, 3, 4])
         expect(run({ milestones: ['(none)'] })).toEqual([1, 2, 3])
+    })
+    test('only new: updated after the last visit, nothing on a first visit', () => {
+        const run = (lastVisit: number | null) =>
+            applyFilters(
+                fixtures,
+                { ...DEFAULT_FILTERS, onlyNew: true, state: 'all' },
+                {
+                    ...ctx,
+                    lastVisit
+                }
+            ).map((i) => i.id)
+        expect(run(Date.parse(daysAgo(2)))).toEqual(
+            fixtures
+                .filter((i) => Date.parse(i.updated_at) > Date.parse(daysAgo(2)))
+                .map((i) => i.id)
+        )
+        expect(run(Date.parse(daysAgo(2))).length).toBeGreaterThan(0)
+        expect(run(null)).toEqual([])
+        expect(isNew(fixtures[0]!, NOW)).toBe(false)
     })
     test('"mine" shortcuts use the viewer login', () => {
         const run = (mine: typeof DEFAULT_FILTERS.mine, login: string | null) =>

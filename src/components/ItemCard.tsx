@@ -10,6 +10,8 @@ interface Props {
     item: Item
     viewerLogin: string | null
     now: number
+    /** Created or updated since the last visit. */
+    fresh?: boolean
     selected: boolean
     onSelect: () => void
     /** Present when bulk selection is available (logged in). */
@@ -24,6 +26,7 @@ export function ItemCard({
     item,
     viewerLogin,
     now,
+    fresh,
     selected,
     onSelect,
     checked,
@@ -88,6 +91,13 @@ export function ItemCard({
                         </button>
                         <RepoMenu repo={item.repo} onToast={onToast} subtle />
                         <span>#{item.number}</span>
+                        {fresh && (
+                            <span
+                                className='bg-accent-blue inline-block h-2 w-2 rounded-full'
+                                title='New or updated since your last visit'
+                                aria-label='New since your last visit'
+                            />
+                        )}
                         {item.draft && (
                             <span className='rounded bg-white/10 px-1.5 text-[10px] font-semibold uppercase'>
                                 draft

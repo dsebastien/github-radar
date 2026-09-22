@@ -15,6 +15,7 @@ import { StatsRow } from './components/StatsRow'
 import { Toasts, type Toast } from './components/Toasts'
 import { Button, GitHubIcon, Spinner } from './components/ui'
 import { usePersistedState } from './hooks/usePersistedState'
+import { useLastVisit } from './hooks/useLastVisit'
 import { useRadar } from './hooks/useRadar'
 import { rangeIds } from './lib/bulk'
 import { mutedCounts, removeNoise, toggleMuted } from './lib/noise'
@@ -23,6 +24,7 @@ import {
     computeFacets,
     countBySource,
     groupItems,
+    isNew,
     itemSources,
     pruneFilters,
     sortItems,
@@ -64,6 +66,7 @@ export function App() {
     const [selectedId, setSelectedId] = useState<number | null>(null)
     const [toasts, setToasts] = useState<Toast[]>([])
     const [now, setNow] = useState(() => Date.now())
+    const [lastVisit, markSeen] = useLastVisit()
 
     useEffect(() => {
         const id = window.setInterval(() => setNow(Date.now()), 60_000)
@@ -126,12 +129,13 @@ export function App() {
             sortItems(
                 applyFilters(denoised, projectsOn ? filters : { ...filters, projects: [] }, {
                     now,
+                    lastVisit,
                     viewerLogin: radar.viewer?.login ?? null,
                     sources: radar.effective
                 }),
                 filters.sort
             ),
-        [denoised, filters, now, radar.viewer?.login, radar.effective, projectsOn]
+        [denoised, filters, now, lastVisit, radar.viewer?.login, radar.effective, projectsOn]
     )
     // "Load more" paging, reset whenever the filtered list changes identity.
     const pageKey = `${JSON.stringify(filters)}|${radar.items.length}`
@@ -247,7 +251,15 @@ export function App() {
     }
 
     const resetAll = () => {
-        for (const key of ['sources', 'filters', 'settings', TOKEN_KEY, 'cache', 'mutedRepos'])
+        for (const key of [
+            'sources',
+            'filters',
+            'settings',
+            TOKEN_KEY,
+            'cache',
+            'mutedRepos',
+            'lastVisit'
+        ])
             remove(key)
         window.location.reload()
     }
@@ -311,7 +323,31 @@ export function App() {
                         {!empty && (
                             <div className='bg-surface border-line shadow-card rounded-xl border p-4'>
                                 <div className='mb-3 flex flex-wrap items-center gap-3'>
-                                    <StatsRow all={scoped} shown={shown} now={now} />
+                                    <StatsRow
+                                        all={scoped}
+                                        shown={shown}
+                                        now={now}
+                                        newCount={
+                                            lastVisit === null
+                                                ? null
+                                                : scoped.filter((i) => isNew(i, lastVisit)).length
+                                        }
+                                        onlyNew={filters.onlyNew}
+                                        onToggleNew={() =>
+                                            setFilters((f) => ({ ...f, onlyNew: !f.onlyNew }))
+                                        }
+                                    />
+                                    {lastVisit !== null &&
+                                        scoped.some((i) => isNew(i, lastVisit)) && (
+                                            <Button
+                                                size='sm'
+                                                variant='ghost'
+                                                onClick={markSeen}
+                                                title='Clear every “new” marker'
+                                            >
+                                                Mark all seen
+                                            </Button>
+                                        )}
                                     {radar.viewer && shown.length > 0 && (
                                         <Button
                                             size='sm'
@@ -478,6 +514,7 @@ export function App() {
                                                 item={item}
                                                 viewerLogin={radar.viewer?.login ?? null}
                                                 now={now}
+                                                fresh={isNew(item, lastVisit)}
                                                 selected={item.id === selectedId}
                                                 onSelect={() => setSelectedId(item.id)}
                                                 checked={checked.has(item.id)}

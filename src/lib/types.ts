@@ -128,6 +128,8 @@ export interface Filters {
     hideDrafts: boolean
     /** Hide items opened by bots (see isBot). */
     hideBots: boolean
+    /** Only items created or updated since the last visit. */
+    onlyNew: boolean
     /** Pull request review and CI state; items that are not enriched PRs never match. */
     review: ReviewFilter
     /** Source keys (see sourceKey) whose items are hidden. */
@@ -150,6 +152,7 @@ export const DEFAULT_FILTERS: Filters = {
     attention: 'any',
     hideDrafts: false,
     hideBots: false,
+    onlyNew: false,
     review: 'any',
     hiddenSources: [],
     sort: 'updated',
