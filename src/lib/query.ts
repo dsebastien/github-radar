@@ -18,13 +18,17 @@ export function buildQuery(sources: Source[], state: StateFilter, extra: string[
     return [...parts, ...extra, ...sources.map(qualifier)].join(' ')
 }
 
-/** Split sources into chunks whose query stays under the length limit. */
-export function chunkSources(sources: Source[], state: StateFilter): Source[][] {
+/** Split sources into chunks whose query (with `extra` qualifiers) stays under the length limit. */
+export function chunkSources(
+    sources: Source[],
+    state: StateFilter,
+    extra: string[] = []
+): Source[][] {
     if (sources.length === 0) return []
     const chunks: Source[][] = []
     let chunk: Source[] = []
     for (const s of sources) {
-        if (chunk.length > 0 && buildQuery([...chunk, s], state).length > MAX_QUERY_LENGTH) {
+        if (chunk.length > 0 && buildQuery([...chunk, s], state, extra).length > MAX_QUERY_LENGTH) {
             chunks.push(chunk)
             chunk = []
         }

@@ -78,3 +78,112 @@ describe('GitHubClient.search', () => {
         )
     })
 })
+
+/**
+ * A fake GitHub where `user:big` owns many repositories. Any query naming `user:big` reports
+ * 1500 results, and so does `repo:big/huge` unless a `created:` range narrows it to under
+ * four years.
+ * Everything else returns one item.
+ */
+function bigFetch(queries: string[], paths: string[]) {
+    let id = 0
+    const repos = [
+        ...Array.from({ length: 12 }, (_, i) => ({
+            full_name: `big/repository-with-a-long-name-${i}`,
+            archived: false,
+            fork: false,
+            open_issues_count: 3
+        })),
+        { full_name: 'big/huge', archived: false, fork: false, open_issues_count: 5000 },
+        { full_name: 'big/archived', archived: true, fork: false, open_issues_count: 2 },
+        { full_name: 'big/fork', archived: false, fork: true, open_issues_count: 2 },
+        { full_name: 'big/quiet', archived: false, fork: false, open_issues_count: 0 }
+    ]
+    return (input: RequestInfo | URL) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString())
+        paths.push(url.pathname)
+        if (url.pathname === '/users/big/repos') return Promise.resolve(json(200, repos))
+        const q = url.searchParams.get('q') ?? ''
+        queries.push(q)
+        const [from, to = from] = (/created:(\S+)/.exec(q)?.[1] ?? '').split('..')
+        const span = from ? Date.parse(to!) - Date.parse(from) : Infinity
+        const overflow =
+            q.includes('user:big') || (q.includes('repo:big/huge') && span > 4 * 365 * 86_400_000)
+        const page = Number(url.searchParams.get('page'))
+        if (overflow)
+            return Promise.resolve(
+                json(200, {
+                    total_count: 1500,
+                    items: Array.from({ length: 100 }, () => item(++id + page * 0))
+                })
+            )
+        return Promise.resolve(json(200, { total_count: 1, items: [item(++id)] }))
+    }
+}
+
+describe('GitHubClient.search past the 1000-result ceiling', () => {
+    const big: Source = { kind: 'user', value: 'big' }
+
+    test('splits an owner into its repositories, a few per query', async () => {
+        const queries: string[] = []
+        const paths: string[] = []
+        const client = new GitHubClient(null, () => {}, bigFetch(queries, paths))
+        const result = await client.search([big], 'open')
+        expect(result.truncated).toBe(false)
+        // The owner query stops at its first page instead of paging through 1000 results.
+        expect(queries.filter((q) => q.includes('user:big'))).toHaveLength(2)
+        const repoQueries = queries.filter((q) => q.includes('repo:') && !q.includes('created:'))
+        for (const q of repoQueries) expect(q.length).toBeLessThanOrEqual(256)
+        // Archived repositories, forks and repositories without open items are skipped.
+        const all = queries.join(' ')
+        expect(all).not.toContain('big/archived')
+        expect(all).not.toContain('big/fork')
+        expect(all).not.toContain('big/quiet')
+        // Several repositories share a query.
+        expect(repoQueries.some((q) => q.split('repo:').length > 3)).toBe(true)
+        // The repository list is fetched once and reused for the second item type.
+        expect(paths.filter((p) => p === '/users/big/repos')).toHaveLength(1)
+    })
+
+    test('splits a single huge repository by creation date', async () => {
+        const queries: string[] = []
+        const client = new GitHubClient(null, () => {}, bigFetch(queries, []))
+        const result = await client.search([{ kind: 'repo', value: 'big/huge' }], 'open')
+        expect(result.truncated).toBe(false)
+        const ranges = queries.filter((q) => q.includes('created:') && q.includes('is:issue'))
+        // 2008 to today halved until each part spans under four years: 2 + 4 + 8 ranges.
+        expect(ranges).toHaveLength(14)
+        // Ranges are contiguous and never overlap: each starts the day after the previous ends.
+        const bounds = ranges
+            .map((q) => /created:(\S+)\.\.(\S+)/.exec(q))
+            .filter((m): m is RegExpExecArray => m !== null)
+            .map((m) => [m[1]!, m[2]!] as const)
+            .filter(([a, b]) => Date.parse(b) - Date.parse(a) <= 4 * 365 * 86_400_000)
+            .sort(([a], [b]) => a.localeCompare(b))
+        for (let i = 1; i < bounds.length; i++)
+            expect(Date.parse(bounds[i]![0]) - Date.parse(bounds[i - 1]![1])).toBe(86_400_000)
+    })
+
+    test('reports truncation only when a single day still exceeds the ceiling', async () => {
+        const client = new GitHubClient(
+            null,
+            () => {},
+            () =>
+                Promise.resolve(
+                    json(200, {
+                        total_count: 1500,
+                        items: Array.from({ length: 100 }, (_, i) => item(i))
+                    })
+                )
+        )
+        const at = Date.UTC(2008, 0, 1)
+        const realNow = Date.now
+        Date.now = () => at + 86_400_000 // GitHub's first two days: one split, two single days.
+        try {
+            const result = await client.search([{ kind: 'repo', value: 'a/b' }], 'open')
+            expect(result.truncated).toBe(true)
+        } finally {
+            Date.now = realNow
+        }
+    })
+})

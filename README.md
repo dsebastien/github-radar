@@ -55,7 +55,7 @@ The build derives its base path from the repository name, so renaming the fork i
 
 ## Limits worth knowing
 
-- The GitHub Search API returns at most **1000 results per query**. Sources are chunked into several queries automatically, but a single huge organization can still hit the ceiling; the dashboard tells you when that happens.
+- The GitHub Search API returns at most **1000 results per query**. Sources are chunked into several queries automatically; a user or org over the ceiling is searched repository by repository (a few per query), and a single repository over it is split by creation date. Only a single day with more than 1000 items of one type would still be cut short, and the dashboard says so.
 - Unauthenticated searches are limited to **10 requests per minute**; a token raises that to 30, and the REST rate limit to 5000 per hour. The dashboard paces its requests against those budgets and waits for the window to reset when needed, so a large first load can take a couple of minutes. After that, refreshes are incremental (only what changed) and cheap.
 
 ## Contributing

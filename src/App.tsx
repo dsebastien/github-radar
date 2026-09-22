@@ -310,8 +310,9 @@ export function App() {
                             )}
                             {radar.truncated && (
                                 <p className='text-accent-yellow text-xs'>
-                                    GitHub search returns at most 1000 results per query. Narrow
-                                    your sources or split them to see everything.
+                                    GitHub search returns at most 1000 results per query, and a
+                                    single day in one repository still exceeded it: some items are
+                                    missing.
                                 </p>
                             )}
                         </div>

@@ -17,5 +17,5 @@ Use the Search API. Sources are chunked into queries under the character limit, 
 ## Consequences
 
 - A refresh for a handful of users and orgs costs a few requests, which keeps anonymous use practical.
-- Very large organizations can exceed 1000 open items per query; users are told and can split sources (for example list specific repos) to get exact coverage.
+- Very large users and organizations can exceed 1000 open items per query. The query is then split: per source, then per repository of that owner (listed once, archived repos and forks skipped, cached for a few hours, a few `repo:` qualifiers per query), then by `created:` date ranges halved until each fits. A query whose first page already reports more than 1000 results stops there, so splitting does not waste requests.
 - Search results carry enough fields (labels, assignees, reactions count, draft flag) to render the list without per-item requests. Details (rendered body, comments) are fetched only when an item is opened.

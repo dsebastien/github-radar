@@ -17,6 +17,15 @@ const API = 'https://api.github.com'
 const SEARCH_CEILING = 1000
 /** Required by the Search API: one of these qualifiers must be present. */
 const ITEM_TYPES = ['is:issue', 'is:pull-request'] as const
+const DAY = 86_400_000
+/** GitHub launched in 2008: no item was created before. In days since the epoch. */
+const FIRST_DAY = Math.floor(Date.UTC(2008, 0, 1) / DAY)
+/** Owner repository lists change rarely; reuse them for a while. */
+const REPO_LIST_TTL = 6 * 60 * 60_000
+
+function isoDay(day: number): string {
+    return new Date(day * DAY).toISOString().slice(0, 10)
+}
 
 export class GitHubError extends Error {
     constructor(
@@ -55,6 +64,13 @@ interface RawSearchItem {
     created_at: string
     updated_at: string
     milestone: { title: string } | null
+}
+
+interface RawRepo {
+    full_name: string
+    archived: boolean
+    fork: boolean
+    open_issues_count: number
 }
 
 interface RawSearch {
@@ -143,7 +159,7 @@ export interface SearchProgress {
 
 export interface SearchResult {
     items: Item[]
-    /** True when a query had more than the API's 1000-result ceiling. */
+    /** True when a query still had more than the API's 1000-result ceiling after every split. */
     truncated: boolean
     /** Sources GitHub refused to search: they do not exist or the token cannot see them. */
     invalid: Source[]
@@ -163,6 +179,11 @@ export class GitHubClient {
         private readonly onRateLimit: (r: RateLimit) => void = () => {},
         private readonly fetchImpl: Fetch = (...args) => globalThis.fetch(...args)
     ) {}
+
+    /** Owner repository lists, per source key, with when they were fetched. */
+    private readonly repoLists = new Map<string, { at: number; repos: RawRepo[] }>()
+    /** Set once viewer() resolved, to list the viewer's private repositories. */
+    private viewerLogin: string | null = null
 
     get authenticated(): boolean {
         return this.token !== null
@@ -249,6 +270,7 @@ export class GitHubClient {
 
     async viewer(): Promise<Viewer> {
         const { data: u } = await this.request<RawUser>('/user')
+        this.viewerLogin = u.login
         let orgs: string[] = []
         try {
             const { data } = await this.request<Array<{ login: string }>>('/user/orgs?per_page=100')
@@ -287,12 +309,20 @@ export class GitHubClient {
         const invalid: Source[] = []
         const progress = { fetched: 0, total: 0 }
 
-        /** Fetch every page of one query. Returns false when the 1000-result ceiling cut it short. */
-        const fetchAll = async (q: string): Promise<boolean> => {
+        /**
+         * Fetch every page of one query. Returns false when the 1000-result ceiling cut it short.
+         * With `splittable`, a query whose first page already reports more than the ceiling stops
+         * right there (false), so the caller can split it instead of paging through 1000 results
+         * it would fetch again.
+         */
+        const fetchAll = async (q: string, splittable = false): Promise<boolean> => {
             for (let page = 1; ; page++) {
                 const path = `/search/issues?q=${encodeURIComponent(q)}&sort=updated&order=desc&per_page=100&page=${page}`
                 const { data } = await this.request<RawSearch>(path, { signal: opts.signal })
-                if (page === 1) progress.total += Math.min(data.total_count, SEARCH_CEILING)
+                if (page === 1) {
+                    if (splittable && data.total_count > SEARCH_CEILING) return false
+                    progress.total += Math.min(data.total_count, SEARCH_CEILING)
+                }
                 for (const raw of data.items) byId.set(raw.id, toItem(raw))
                 progress.fetched += data.items.length
                 opts.onProgress?.({ ...progress, items: Array.from(byId.values()) })
@@ -303,44 +333,126 @@ export class GitHubClient {
         }
 
         /**
-         * GitHub answers 422 when a user, org or repo in the query does not exist or is not
-         * visible, but only when no other qualifier in the query is valid. A single source that
-         * gets a 422 is recorded as invalid and skipped; returns null for it.
+         * Last resort for one repository with more than 1000 items of one type: split by creation
+         * date, halving the range until every part fits. Only a single day that still exceeds the
+         * ceiling is truncated.
          */
-        const isInvalid = (e: unknown) => e instanceof GitHubError && e.status === 422
-        const fetchOne = async (s: Source, type: string): Promise<boolean | null> => {
-            if (invalid.some((x) => x === s)) return null
-            try {
-                return await fetchAll(buildQuery([s], state, [...extra, type]))
-            } catch (e) {
-                if (!isInvalid(e)) throw e
-                invalid.push(s)
-                return null
+        const fetchByDate = async (q: string, from: number, to: number): Promise<void> => {
+            if (from === to) {
+                if (!(await fetchAll(`${q} created:${isoDay(from)}`))) truncated = true
+                return
+            }
+            const mid = Math.floor((from + to) / 2)
+            for (const [a, b] of [
+                [from, mid],
+                [mid + 1, to]
+            ] as const) {
+                const range = a === b ? isoDay(a) : `${isoDay(a)}..${isoDay(b)}`
+                if (!(await fetchAll(`${q} created:${range}`, true))) await fetchByDate(q, a, b)
             }
         }
 
+        const fetchRepo = async (repo: string, type: string): Promise<void> => {
+            const q = buildQuery([{ kind: 'repo', value: repo }], state, [...extra, type])
+            if (await fetchAll(q, true)) return
+            await fetchByDate(q, FIRST_DAY, Math.floor(Date.now() / DAY))
+        }
+
+        /**
+         * A user or org with more than 1000 items of one type: search its repositories instead,
+         * a few per query, and split further per repository when needed.
+         */
+        const fetchOwnerRepos = async (s: Source, type: string): Promise<void> => {
+            let repos: string[]
+            try {
+                repos = await this.ownerRepos(s, state === 'open', opts.signal)
+            } catch (e) {
+                if (opts.signal?.aborted) throw e
+                // The repository list is not available: settle for the first 1000 results.
+                if (!(await fetchAll(buildQuery([s], state, [...extra, type])))) truncated = true
+                return
+            }
+            const repoSources = repos.map((value): Source => ({ kind: 'repo', value }))
+            for (const chunk of chunkSources(repoSources, state, [...extra, type])) {
+                if (await fetchAll(buildQuery(chunk, state, [...extra, type]), true)) continue
+                for (const r of chunk) await fetchRepo(r.value, type)
+            }
+        }
+
+        /**
+         * GitHub answers 422 when a user, org or repo in the query does not exist or is not
+         * visible, but only when no other qualifier in the query is valid. A single source that
+         * gets a 422 is recorded as invalid and skipped.
+         */
+        const isInvalid = (e: unknown) => e instanceof GitHubError && e.status === 422
+        const fetchOne = async (s: Source, type: string): Promise<void> => {
+            if (invalid.some((x) => x === s)) return
+            try {
+                if (await fetchAll(buildQuery([s], state, [...extra, type]), true)) return
+            } catch (e) {
+                if (!isInvalid(e)) throw e
+                invalid.push(s)
+                return
+            }
+            if (s.kind === 'repo') {
+                const q = buildQuery([s], state, [...extra, type])
+                await fetchByDate(q, FIRST_DAY, Math.floor(Date.now() / DAY))
+            } else await fetchOwnerRepos(s, type)
+        }
+
         // GitHub requires every issue search to name a type (`is:issue` or `is:pull-request`),
-        // so each chunk is fetched once per type. A query that still hits the 1000-result
-        // ceiling, or is refused as a whole, is split per source; only a single source with
-        // 1000+ open items of one type is reported as truncated.
-        for (const chunk of chunkSources(sources, state)) {
-            for (const type of ITEM_TYPES) {
-                const [only] = chunk
-                if (only && chunk.length === 1) {
-                    if ((await fetchOne(only, type)) === false) truncated = true
-                    continue
+        // so each chunk is fetched once per type. A query over the 1000-result ceiling, or
+        // refused as a whole, is split per source, then per repository, then by creation date.
+        for (const type of ITEM_TYPES) {
+            for (const chunk of chunkSources(sources, state, [...extra, type])) {
+                if (chunk.length > 1) {
+                    try {
+                        if (await fetchAll(buildQuery(chunk, state, [...extra, type]), true))
+                            continue
+                    } catch (e) {
+                        if (!isInvalid(e)) throw e
+                    }
                 }
-                try {
-                    if (await fetchAll(buildQuery(chunk, state, [...extra, type]))) continue
-                } catch (e) {
-                    if (!isInvalid(e)) throw e
-                }
-                for (const s of chunk) {
-                    if ((await fetchOne(s, type)) === false) truncated = true
-                }
+                for (const s of chunk) await fetchOne(s, type)
             }
         }
         return { items: Array.from(byId.values()), truncated, invalid }
+    }
+
+    /**
+     * Repositories owned by a user or org that can hold items: archived repositories and forks
+     * are skipped, and so are repositories without open issues or PRs when `openOnly`. Cached per
+     * owner for a few hours. The viewer's own account is listed with private repositories.
+     */
+    async ownerRepos(owner: Source, openOnly: boolean, signal?: AbortSignal): Promise<string[]> {
+        const key = `${owner.kind}:${owner.value.toLowerCase()}`
+        const cached = this.repoLists.get(key)
+        let repos = cached && Date.now() - cached.at < REPO_LIST_TTL ? cached.repos : null
+        if (!repos) {
+            const self =
+                owner.kind === 'user' &&
+                this.viewerLogin?.toLowerCase() === owner.value.toLowerCase()
+            const base =
+                owner.kind === 'org'
+                    ? `/orgs/${owner.value}/repos?type=all`
+                    : self
+                      ? '/user/repos?affiliation=owner&visibility=all'
+                      : `/users/${owner.value}/repos?type=owner`
+            const list: RawRepo[] = []
+            for (let page = 1; ; page++) {
+                const { data } = await this.request<RawRepo[]>(
+                    `${base}&per_page=100&page=${page}`,
+                    { signal }
+                )
+                list.push(...data)
+                if (data.length < 100) break
+            }
+            repos = list
+            this.repoLists.set(key, { at: Date.now(), repos })
+        }
+        return repos
+            .filter((r) => !r.archived && !r.fork && (!openOnly || r.open_issues_count > 0))
+            .map((r) => r.full_name)
     }
 
     /** Rendered body, comments and whether the viewer already gave a 👍. */
