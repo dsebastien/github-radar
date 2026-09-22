@@ -42,5 +42,11 @@ export default defineConfig([
                 { checksVoidReturn: { attributes: false } }
             ]
         }
+    },
+    {
+        // The service worker is plain JavaScript served as is: no type information.
+        files: ['public/sw.js'],
+        extends: [tseslint.configs.disableTypeChecked],
+        languageOptions: { globals: { ...globals.serviceworker } }
     }
 ])
