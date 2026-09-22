@@ -115,18 +115,23 @@ export function App() {
         () => visibleBySources(denoised, radar.effective, filters.hiddenSources),
         [denoised, radar.effective, filters.hiddenSources]
     )
-    const facets = useMemo(() => computeFacets(scoped), [scoped])
+    // Project memberships mean nothing when the token cannot read projects: no facet, no filter.
+    const projectsOn = radar.projectsAvailable === true
+    const facets = useMemo(() => {
+        const f = computeFacets(scoped)
+        return projectsOn ? f : { ...f, projects: [] }
+    }, [scoped, projectsOn])
     const shown = useMemo(
         () =>
             sortItems(
-                applyFilters(denoised, filters, {
+                applyFilters(denoised, projectsOn ? filters : { ...filters, projects: [] }, {
                     now,
                     viewerLogin: radar.viewer?.login ?? null,
                     sources: radar.effective
                 }),
                 filters.sort
             ),
-        [denoised, filters, now, radar.viewer?.login, radar.effective]
+        [denoised, filters, now, radar.viewer?.login, radar.effective, projectsOn]
     )
     // "Load more" paging, reset whenever the filtered list changes identity.
     const pageKey = `${JSON.stringify(filters)}|${radar.items.length}`
@@ -569,9 +574,7 @@ export function App() {
                             onPatch={(patch) => radar.patchItem(selected.id, patch)}
                             onToast={toast}
                             onLogin={() => setDialog('login')}
-                            loadProjects={
-                                radar.projectsAvailable === false ? undefined : radar.loadProjects
-                            }
+                            loadProjects={projectsOn ? radar.loadProjects : undefined}
                         />
                     </>
                 )}
@@ -583,6 +586,7 @@ export function App() {
                         settings={settings}
                         onChange={setSettings}
                         loggedIn={radar.viewer !== null}
+                        projectsAvailable={radar.projectsAvailable}
                         onClose={() => setDialog(null)}
                         onReset={resetAll}
                     />

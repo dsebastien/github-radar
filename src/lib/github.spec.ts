@@ -187,3 +187,38 @@ describe('GitHubClient.search past the 1000-result ceiling', () => {
         }
     })
 })
+
+describe('GitHubClient.canReadProjects', () => {
+    /** GraphQL answers per owner login: how many projects, and whether they are visible. */
+    const graphql = (owners: Record<string, { total: number; visible: boolean }>) => {
+        const asked: string[] = []
+        const fetch = (_: RequestInfo | URL, init?: RequestInit) => {
+            const { variables } = JSON.parse(init?.body as string) as {
+                variables: { login: string }
+            }
+            asked.push(variables.login)
+            const o = owners[variables.login] ?? { total: 0, visible: true }
+            const nodes = o.total > 0 ? [o.visible ? { id: 'P' } : null] : []
+            return Promise.resolve(
+                json(200, {
+                    data: { repositoryOwner: { projectsV2: { totalCount: o.total, nodes } } }
+                })
+            )
+        }
+        return { asked, client: new GitHubClient('t', () => {}, fetch) }
+    }
+
+    test('projects that exist but come back null mean no permission', async () => {
+        const { client } = graphql({ me: { total: 4, visible: false } })
+        expect(await client.canReadProjects(['me'])).toBe(false)
+    })
+    test('skips owners without projects until one can tell', async () => {
+        const { client, asked } = graphql({ org: { total: 2, visible: true } })
+        expect(await client.canReadProjects(['me', 'org', 'other'])).toBe(true)
+        expect(asked).toEqual(['me', 'org'])
+    })
+    test('nobody has projects: nothing to show', async () => {
+        const { client } = graphql({})
+        expect(await client.canReadProjects(['me'])).toBe(false)
+    })
+})

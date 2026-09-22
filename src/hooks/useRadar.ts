@@ -286,7 +286,16 @@ export function useRadar(
                             break
                         }
                     }
-                    if (projectsRef.current !== false) {
+                    if (projectsRef.current === null && viewer) {
+                        const readable = await client.canReadProjects(
+                            projectOwners(visible, viewer.login),
+                            controller.signal
+                        )
+                        if (controller.signal.aborted) return
+                        projectsRef.current = readable
+                        setProjectsAvailable(readable)
+                    }
+                    if (projectsRef.current === true) {
                         const stale = needsProjects(items, Date.now())
                         for (let i = 0; i < stale.length; i += ENRICH_BATCH) {
                             const ids = stale.slice(i, i + ENRICH_BATCH).map((t) => t.node_id)
@@ -297,7 +306,6 @@ export function useRadar(
                                 )
                                 if (controller.signal.aborted) return
                                 items = applyProjects(items, nodes, Date.now())
-                                setProjectsAvailable(true)
                             } catch (e) {
                                 if (controller.signal.aborted) return
                                 if (e instanceof GitHubError && e.status === 403) {
@@ -330,7 +338,7 @@ export function useRadar(
                 }
             }
         },
-        [client, visible, state, onAuthError, setProjectsAvailable]
+        [client, visible, state, onAuthError, setProjectsAvailable, viewer]
     )
 
     // Fetch when the visible scope changes: an in-flight fetch is aborted and restarted for the

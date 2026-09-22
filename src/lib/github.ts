@@ -557,6 +557,34 @@ export class GitHubClient {
         return nodes
     }
 
+    /**
+     * Whether the token can read projects. Without the Projects permission GitHub does not
+     * fail: it reports how many projects exist but returns every one as null, and item
+     * memberships as empty. So probe owners until one has projects and see if they come back.
+     * Owners without any project cannot tell; if none has one, there is nothing to show anyway.
+     */
+    async canReadProjects(owners: string[], signal?: AbortSignal): Promise<boolean> {
+        for (const login of owners) {
+            const data = await this.graphql<{
+                repositoryOwner: {
+                    projectsV2?: { totalCount: number; nodes: Array<{ id: string } | null> }
+                } | null
+            }>(
+                `query($login: String!) {
+  repositoryOwner(login: $login) {
+    ... on User { projectsV2(first: 1) { totalCount nodes { id } } }
+    ... on Organization { projectsV2(first: 1) { totalCount nodes { id } } }
+  }
+}`,
+                { login },
+                { signal }
+            ).catch(() => null)
+            const projects = data?.repositoryOwner?.projectsV2
+            if (projects && projects.totalCount > 0) return projects.nodes[0] != null
+        }
+        return false
+    }
+
     /** Open projects of a user or organization, most recently updated first. */
     async ownerProjects(login: string): Promise<Project[]> {
         const data = await this.graphql<{

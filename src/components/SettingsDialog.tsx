@@ -6,11 +6,20 @@ interface Props {
     settings: Settings
     onChange: (s: Settings) => void
     loggedIn: boolean
+    /** Whether the token can read GitHub Projects; null while unknown. */
+    projectsAvailable: boolean | null
     onClose: () => void
     onReset: () => void
 }
 
-export function SettingsDialog({ settings, onChange, loggedIn, onClose, onReset }: Props) {
+export function SettingsDialog({
+    settings,
+    onChange,
+    loggedIn,
+    projectsAvailable,
+    onClose,
+    onReset
+}: Props) {
     return (
         <Modal title='Settings' onClose={onClose}>
             <div className='space-y-5 text-sm'>
@@ -30,6 +39,15 @@ export function SettingsDialog({ settings, onChange, loggedIn, onClose, onReset 
                         </span>
                     </span>
                 </label>
+                {loggedIn && projectsAvailable === false && (
+                    <p className='text-muted rounded-lg bg-white/5 p-3'>
+                        <span className='font-semibold text-white'>GitHub Projects are off.</span>{' '}
+                        Your token cannot read projects, or no source owner has any. To see and
+                        change project membership and status, give the token{' '}
+                        <code className='font-mono text-xs'>Projects: read and write</code> on your
+                        account and each organization, then log in again.
+                    </p>
+                )}
                 <label className='block'>
                     <span className='font-semibold'>Auto refresh</span>
                     <select
