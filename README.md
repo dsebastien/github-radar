@@ -13,6 +13,7 @@ Static, private, and generic: it runs entirely in your browser, talks only to `a
 - **Focus**: click a source to see only its items (click again to widen back); click a repository name on any card to filter down to that repository.
 - **Per-source visibility**: an eye toggle on each source shows or hides its items without removing it; each source shows how many items it contributes.
 - **Filters**: full-text (title, repo, `#number`, author, label), issue/PR, open/closed, labels, repos, authors, assignees, milestones (by title across repositories, or none), draft PRs, and "mine" shortcuts (assigned to me, by me, involved).
+- **Noise controls**: "Hide bots" drops items opened by Dependabot, Renovate, GitHub Actions and other apps. "Mute this repository" (in any repository's ⧉ menu) hides a repository's items everywhere; the sources panel lists muted repositories with their item counts to unmute them. Stats, facets and source counts follow both rules.
 - **Needs-attention signals**: stale (30+ days idle), dormant (90+ days), unlabeled, unassigned, draft.
 - **Load more**: the list renders 50 cards at a time; a button at the bottom loads the next batch.
 - **Sort and group**: by recent activity, creation date, discussion, or title; group by repository or author.

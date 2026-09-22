@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useEffect, useId, useRef, useState } from 'react'
 import { copyText, repoUrls } from '@/lib/repo'
+import { useRepoActions } from './RepoActions'
 import { ExternalIcon } from './ui'
 
 interface Props {
@@ -21,6 +22,7 @@ export function RepoMenu({ repo, onToast, subtle, className }: Props) {
     const root = useRef<HTMLDivElement>(null)
     const id = useId()
     const urls = repoUrls(repo)
+    const actions = useRepoActions()
 
     useEffect(() => {
         if (!open) return
@@ -104,6 +106,21 @@ export function RepoMenu({ repo, onToast, subtle, className }: Props) {
                     >
                         Open on GitHub <ExternalIcon />
                     </a>
+                    {actions && (
+                        <button
+                            type='button'
+                            role='menuitem'
+                            onClick={() => {
+                                setOpen(false)
+                                actions.toggleMute(repo)
+                            }}
+                            className='text-muted flex w-full rounded-md px-2 py-1.5 hover:bg-white/10 hover:text-white'
+                        >
+                            {actions.isMuted(repo)
+                                ? 'Unmute this repository'
+                                : 'Mute this repository'}
+                        </button>
+                    )}
                 </div>
             )}
         </div>

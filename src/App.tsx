@@ -6,6 +6,7 @@ import { Header } from './components/Header'
 import { Hero } from './components/Hero'
 import { ItemCard } from './components/ItemCard'
 import { ItemDrawer } from './components/ItemDrawer'
+import { RepoActionsContext } from './components/RepoActions'
 import { RepoMenu } from './components/RepoMenu'
 import { LoginDialog } from './components/LoginDialog'
 import { SettingsDialog } from './components/SettingsDialog'
@@ -16,6 +17,7 @@ import { Button, GitHubIcon, Spinner } from './components/ui'
 import { usePersistedState } from './hooks/usePersistedState'
 import { useRadar } from './hooks/useRadar'
 import { rangeIds } from './lib/bulk'
+import { mutedCounts, removeNoise, toggleMuted } from './lib/noise'
 import {
     applyFilters,
     computeFacets,
@@ -92,23 +94,39 @@ export function App() {
         onAuthError
     )
 
+    // Muted repositories and (optionally) bots are noise: out of the list, stats, facets and
+    // source counts alike. The sources panel still says how many items are muted.
+    const [mutedRepos, setMutedRepos] = usePersistedState<string[]>('mutedRepos', [])
+    const denoised = useMemo(
+        () => removeNoise(radar.items, { mutedRepos, hideBots: filters.hideBots }),
+        [radar.items, mutedRepos, filters.hideBots]
+    )
+    const muted = useMemo(() => mutedCounts(radar.items, mutedRepos), [radar.items, mutedRepos])
+    const repoActions = useMemo(
+        () => ({
+            isMuted: (repo: string) =>
+                mutedRepos.some((r) => r.toLowerCase() === repo.toLowerCase()),
+            toggleMute: (repo: string) => setMutedRepos((list) => toggleMuted(list, repo))
+        }),
+        [mutedRepos, setMutedRepos]
+    )
     // Items from hidden sources stay cached but leave the stats and facets.
     const scoped = useMemo(
-        () => visibleBySources(radar.items, radar.effective, filters.hiddenSources),
-        [radar.items, radar.effective, filters.hiddenSources]
+        () => visibleBySources(denoised, radar.effective, filters.hiddenSources),
+        [denoised, radar.effective, filters.hiddenSources]
     )
     const facets = useMemo(() => computeFacets(scoped), [scoped])
     const shown = useMemo(
         () =>
             sortItems(
-                applyFilters(radar.items, filters, {
+                applyFilters(denoised, filters, {
                     now,
                     viewerLogin: radar.viewer?.login ?? null,
                     sources: radar.effective
                 }),
                 filters.sort
             ),
-        [radar.items, filters, now, radar.viewer?.login, radar.effective]
+        [denoised, filters, now, radar.viewer?.login, radar.effective]
     )
     // "Load more" paging, reset whenever the filtered list changes identity.
     const pageKey = `${JSON.stringify(filters)}|${radar.items.length}`
@@ -134,8 +152,8 @@ export function App() {
                 : [...collapsedKeys, key]
         )
     const sourceCounts = useMemo(
-        () => countBySource(radar.items, radar.effective),
-        [radar.items, radar.effective]
+        () => countBySource(denoised, radar.effective),
+        [denoised, radar.effective]
     )
     // A source is "focused" when it is the only visible one among the effective sources.
     const focusedSource = useMemo(() => {
@@ -224,341 +242,357 @@ export function App() {
     }
 
     const resetAll = () => {
-        for (const key of ['sources', 'filters', 'settings', TOKEN_KEY, 'cache']) remove(key)
+        for (const key of ['sources', 'filters', 'settings', TOKEN_KEY, 'cache', 'mutedRepos'])
+            remove(key)
         window.location.reload()
     }
 
     const empty = radar.effective.length === 0
 
     return (
-        <div className='min-h-screen'>
-            <Header
-                viewer={radar.viewer}
-                viewerLoading={radar.viewerLoading}
-                rateLimit={radar.rateLimit}
-                onLogin={() => setDialog('login')}
-                onLogout={logout}
-                onSettings={() => setDialog('settings')}
-                onRefresh={empty ? null : () => radar.refresh('auto')}
-                refreshing={radar.loading}
-            />
-            <Hero empty={empty} />
-            <main className='mx-auto grid max-w-[112rem] grid-cols-1 gap-5 px-4 pb-24 lg:grid-cols-[19rem_1fr] 2xl:grid-cols-[21rem_1fr] 2xl:gap-6 2xl:px-8'>
-                <div className='min-w-0 space-y-5'>
-                    <SourcesPanel
-                        sources={sources}
-                        effective={radar.effective}
-                        viewer={radar.viewer}
-                        onAdd={(s) => setSources((list) => addSource(list, s))}
-                        onRemove={removeSourceAndPrune}
-                        onToast={toast}
-                        hidden={filters.hiddenSources}
-                        counts={sourceCounts}
-                        onToggleHidden={toggleSource}
-                        focused={focusedSource}
-                        onFocus={focusSource}
-                    />
-                    {!radar.viewer && !radar.viewerLoading && (
-                        <div className='bg-surface border-line rounded-xl border p-4 text-sm'>
-                            <p className='font-semibold'>
-                                See private repositories and act from here
-                            </p>
-                            <p className='text-muted mt-1'>
-                                Log in with a personal access token to include private repositories,
-                                get a much higher API rate limit, and upvote, comment, label,
-                                assign, close or reopen items.
-                            </p>
-                            <Button
-                                variant='primary'
-                                size='sm'
-                                className='mt-3'
-                                onClick={() => setDialog('login')}
-                            >
-                                Log in with a token
-                            </Button>
-                        </div>
-                    )}
-                </div>
-
-                <div className='min-w-0 space-y-4'>
-                    {!empty && (
-                        <div className='bg-surface border-line shadow-card rounded-xl border p-4'>
-                            <div className='mb-3 flex flex-wrap items-center gap-3'>
-                                <StatsRow all={scoped} shown={shown} now={now} />
-                                {radar.viewer && shown.length > 0 && (
-                                    <Button
-                                        size='sm'
-                                        variant='ghost'
-                                        onClick={() =>
-                                            setChecked(
-                                                allShownChecked ? new Set() : new Set(shownIds)
-                                            )
-                                        }
-                                        title='Select every item matching the filters, for bulk actions'
-                                    >
-                                        {allShownChecked
-                                            ? 'Unselect all'
-                                            : `Select all ${shown.length} shown`}
-                                    </Button>
-                                )}
-                                <div className='text-muted ml-auto flex items-center gap-2 text-xs'>
-                                    {radar.loading ? (
-                                        <>
-                                            <Spinner />
-                                            {radar.progress
-                                                ? `${radar.progress.fetched}/${radar.progress.total}`
-                                                : 'Fetching…'}
-                                        </>
-                                    ) : radar.fetchedAt ? (
-                                        <span>
-                                            updated{' '}
-                                            {timeAgo(new Date(radar.fetchedAt).toISOString(), now)}
-                                        </span>
-                                    ) : null}
-                                    <Button
-                                        size='sm'
-                                        variant='ghost'
-                                        onClick={(e) => radar.refresh(e.shiftKey ? 'full' : 'auto')}
-                                        disabled={radar.loading}
-                                        title='Fetch what changed since the last refresh. Shift+click to refetch everything.'
-                                    >
-                                        ↻ Refresh
-                                    </Button>
-                                </div>
-                            </div>
-                            {radar.error && (
-                                <p className='rounded-lg bg-red-500/15 p-3 text-sm text-red-200'>
-                                    {radar.error}
-                                </p>
-                            )}
-                            {radar.invalid.length > 0 && (
-                                <div className='text-accent-yellow flex flex-wrap items-center gap-2 text-xs'>
-                                    <span>
-                                        GitHub cannot search these sources: they do not exist, or
-                                        your token cannot see them.
-                                    </span>
-                                    {radar.invalid.map((s) => (
-                                        <button
-                                            key={sourceKey(s)}
-                                            type='button'
-                                            className='rounded border border-current px-1.5 py-0.5 hover:bg-yellow-500/10'
-                                            title='Remove this source'
-                                            onClick={() => removeSourceAndPrune(s)}
-                                        >
-                                            {sourceLabel(s)} ✕
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                            {radar.truncated && (
-                                <p className='text-accent-yellow text-xs'>
-                                    GitHub search returns at most 1000 results per query, and a
-                                    single day in one repository still exceeded it: some items are
-                                    missing.
-                                </p>
-                            )}
-                        </div>
-                    )}
-
-                    {!empty && (
-                        <FilterBar
-                            filters={filters}
-                            facets={facets}
+        <RepoActionsContext.Provider value={repoActions}>
+            <div className='min-h-screen'>
+                <Header
+                    viewer={radar.viewer}
+                    viewerLoading={radar.viewerLoading}
+                    rateLimit={radar.rateLimit}
+                    onLogin={() => setDialog('login')}
+                    onLogout={logout}
+                    onSettings={() => setDialog('settings')}
+                    onRefresh={empty ? null : () => radar.refresh('auto')}
+                    refreshing={radar.loading}
+                />
+                <Hero empty={empty} />
+                <main className='mx-auto grid max-w-[112rem] grid-cols-1 gap-5 px-4 pb-24 lg:grid-cols-[19rem_1fr] 2xl:grid-cols-[21rem_1fr] 2xl:gap-6 2xl:px-8'>
+                    <div className='min-w-0 space-y-5'>
+                        <SourcesPanel
+                            sources={sources}
+                            effective={radar.effective}
                             viewer={radar.viewer}
-                            onChange={setFilters}
+                            onAdd={(s) => setSources((list) => addSource(list, s))}
+                            onRemove={removeSourceAndPrune}
+                            onToast={toast}
+                            hidden={filters.hiddenSources}
+                            counts={sourceCounts}
+                            onToggleHidden={toggleSource}
+                            focused={focusedSource}
+                            onFocus={focusSource}
+                            muted={muted}
+                            onUnmute={(r) => setMutedRepos((list) => toggleMuted(list, r))}
                         />
-                    )}
-
-                    {!empty && filters.group !== 'none' && groups.length > 1 && (
-                        <div className='text-faint flex items-center justify-end gap-3 text-xs'>
-                            <button
-                                type='button'
-                                onClick={() => setCollapsedKeys(groups.map((g) => g.key))}
-                                className='hover:text-white'
-                            >
-                                Collapse all
-                            </button>
-                            <button
-                                type='button'
-                                onClick={() => setCollapsedKeys([])}
-                                className='hover:text-white'
-                            >
-                                Expand all
-                            </button>
-                        </div>
-                    )}
-                    {empty ? (
-                        <EmptyState />
-                    ) : shown.length === 0 && !radar.loading ? (
-                        <div className='bg-surface border-line rounded-xl border p-10 text-center'>
-                            <p className='text-lg font-bold'>Nothing matches.</p>
-                            <p className='text-muted mt-1 text-sm'>
-                                {radar.items.length === 0
-                                    ? 'No items were found for these sources.'
-                                    : 'Loosen the filters to see more.'}
-                            </p>
-                            {radar.items.length > 0 && (
+                        {!radar.viewer && !radar.viewerLoading && (
+                            <div className='bg-surface border-line rounded-xl border p-4 text-sm'>
+                                <p className='font-semibold'>
+                                    See private repositories and act from here
+                                </p>
+                                <p className='text-muted mt-1'>
+                                    Log in with a personal access token to include private
+                                    repositories, get a much higher API rate limit, and upvote,
+                                    comment, label, assign, close or reopen items.
+                                </p>
                                 <Button
+                                    variant='primary'
                                     size='sm'
-                                    className='mt-4'
-                                    onClick={() => setFilters(DEFAULT_FILTERS)}
+                                    className='mt-3'
+                                    onClick={() => setDialog('login')}
                                 >
-                                    Reset filters
+                                    Log in with a token
                                 </Button>
-                            )}
-                        </div>
-                    ) : (
-                        groups.map((g) => (
-                            <section key={g.key} className='grid gap-2 2xl:grid-cols-2'>
-                                {g.key && (
-                                    <h2 className='group mt-2 flex items-center gap-2 text-sm font-extrabold 2xl:col-span-2'>
-                                        <button
-                                            type='button'
-                                            onClick={() => toggleGroup(g.key)}
-                                            aria-expanded={!collapsedKeys.has(g.key)}
-                                            className='flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-white/8'
+                            </div>
+                        )}
+                    </div>
+
+                    <div className='min-w-0 space-y-4'>
+                        {!empty && (
+                            <div className='bg-surface border-line shadow-card rounded-xl border p-4'>
+                                <div className='mb-3 flex flex-wrap items-center gap-3'>
+                                    <StatsRow all={scoped} shown={shown} now={now} />
+                                    {radar.viewer && shown.length > 0 && (
+                                        <Button
+                                            size='sm'
+                                            variant='ghost'
+                                            onClick={() =>
+                                                setChecked(
+                                                    allShownChecked ? new Set() : new Set(shownIds)
+                                                )
+                                            }
+                                            title='Select every item matching the filters, for bulk actions'
                                         >
-                                            <span
-                                                aria-hidden
-                                                className={clsx(
-                                                    'text-faint inline-block text-[10px] transition-transform',
-                                                    collapsedKeys.has(g.key)
-                                                        ? '-rotate-90'
-                                                        : 'rotate-0'
+                                            {allShownChecked
+                                                ? 'Unselect all'
+                                                : `Select all ${shown.length} shown`}
+                                        </Button>
+                                    )}
+                                    <div className='text-muted ml-auto flex items-center gap-2 text-xs'>
+                                        {radar.loading ? (
+                                            <>
+                                                <Spinner />
+                                                {radar.progress
+                                                    ? `${radar.progress.fetched}/${radar.progress.total}`
+                                                    : 'Fetching…'}
+                                            </>
+                                        ) : radar.fetchedAt ? (
+                                            <span>
+                                                updated{' '}
+                                                {timeAgo(
+                                                    new Date(radar.fetchedAt).toISOString(),
+                                                    now
                                                 )}
-                                            >
-                                                ▼
                                             </span>
-                                            <span className='truncate'>{g.key}</span>
-                                            <span className='text-faint font-mono text-xs'>
-                                                {g.items.length}
-                                            </span>
-                                        </button>
-                                        {filters.group === 'repo' && (
-                                            <RepoMenu repo={g.key} onToast={toast} subtle />
-                                        )}
-                                    </h2>
+                                        ) : null}
+                                        <Button
+                                            size='sm'
+                                            variant='ghost'
+                                            onClick={(e) =>
+                                                radar.refresh(e.shiftKey ? 'full' : 'auto')
+                                            }
+                                            disabled={radar.loading}
+                                            title='Fetch what changed since the last refresh. Shift+click to refetch everything.'
+                                        >
+                                            ↻ Refresh
+                                        </Button>
+                                    </div>
+                                </div>
+                                {radar.error && (
+                                    <p className='rounded-lg bg-red-500/15 p-3 text-sm text-red-200'>
+                                        {radar.error}
+                                    </p>
                                 )}
-                                {!collapsedKeys.has(g.key) &&
-                                    g.items.map((item) => (
-                                        <ItemCard
-                                            key={item.id}
-                                            item={item}
-                                            viewerLogin={radar.viewer?.login ?? null}
-                                            now={now}
-                                            selected={item.id === selectedId}
-                                            onSelect={() => setSelectedId(item.id)}
-                                            checked={checked.has(item.id)}
-                                            onCheck={
-                                                radar.viewer
-                                                    ? (range) => toggleChecked(item.id, range)
-                                                    : undefined
-                                            }
-                                            onRepoClick={focusRepo}
-                                            onToast={toast}
-                                            onLabelClick={(name) =>
-                                                setFilters((f) => ({
-                                                    ...f,
-                                                    labels: f.labels.includes(name)
-                                                        ? f.labels
-                                                        : [...f.labels, name]
-                                                }))
-                                            }
-                                        />
-                                    ))}
-                            </section>
-                        ))
-                    )}
-                    {radar.viewer && checkedItems.length > 0 && (
-                        <BulkBar
-                            items={checkedItems}
+                                {radar.invalid.length > 0 && (
+                                    <div className='text-accent-yellow flex flex-wrap items-center gap-2 text-xs'>
+                                        <span>
+                                            GitHub cannot search these sources: they do not exist,
+                                            or your token cannot see them.
+                                        </span>
+                                        {radar.invalid.map((s) => (
+                                            <button
+                                                key={sourceKey(s)}
+                                                type='button'
+                                                className='rounded border border-current px-1.5 py-0.5 hover:bg-yellow-500/10'
+                                                title='Remove this source'
+                                                onClick={() => removeSourceAndPrune(s)}
+                                            >
+                                                {sourceLabel(s)} ✕
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                {radar.truncated && (
+                                    <p className='text-accent-yellow text-xs'>
+                                        GitHub search returns at most 1000 results per query, and a
+                                        single day in one repository still exceeded it: some items
+                                        are missing.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {!empty && (
+                            <FilterBar
+                                filters={filters}
+                                facets={facets}
+                                viewer={radar.viewer}
+                                onChange={setFilters}
+                            />
+                        )}
+
+                        {!empty && filters.group !== 'none' && groups.length > 1 && (
+                            <div className='text-faint flex items-center justify-end gap-3 text-xs'>
+                                <button
+                                    type='button'
+                                    onClick={() => setCollapsedKeys(groups.map((g) => g.key))}
+                                    className='hover:text-white'
+                                >
+                                    Collapse all
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={() => setCollapsedKeys([])}
+                                    className='hover:text-white'
+                                >
+                                    Expand all
+                                </button>
+                            </div>
+                        )}
+                        {empty ? (
+                            <EmptyState />
+                        ) : shown.length === 0 && !radar.loading ? (
+                            <div className='bg-surface border-line rounded-xl border p-10 text-center'>
+                                <p className='text-lg font-bold'>Nothing matches.</p>
+                                <p className='text-muted mt-1 text-sm'>
+                                    {radar.items.length === 0
+                                        ? 'No items were found for these sources.'
+                                        : 'Loosen the filters to see more.'}
+                                </p>
+                                {radar.items.length > 0 && (
+                                    <Button
+                                        size='sm'
+                                        className='mt-4'
+                                        onClick={() => setFilters(DEFAULT_FILTERS)}
+                                    >
+                                        Reset filters
+                                    </Button>
+                                )}
+                            </div>
+                        ) : (
+                            groups.map((g) => (
+                                <section key={g.key} className='grid gap-2 2xl:grid-cols-2'>
+                                    {g.key && (
+                                        <h2 className='group mt-2 flex items-center gap-2 text-sm font-extrabold 2xl:col-span-2'>
+                                            <button
+                                                type='button'
+                                                onClick={() => toggleGroup(g.key)}
+                                                aria-expanded={!collapsedKeys.has(g.key)}
+                                                className='flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-white/8'
+                                            >
+                                                <span
+                                                    aria-hidden
+                                                    className={clsx(
+                                                        'text-faint inline-block text-[10px] transition-transform',
+                                                        collapsedKeys.has(g.key)
+                                                            ? '-rotate-90'
+                                                            : 'rotate-0'
+                                                    )}
+                                                >
+                                                    ▼
+                                                </span>
+                                                <span className='truncate'>{g.key}</span>
+                                                <span className='text-faint font-mono text-xs'>
+                                                    {g.items.length}
+                                                </span>
+                                            </button>
+                                            {filters.group === 'repo' && (
+                                                <RepoMenu repo={g.key} onToast={toast} subtle />
+                                            )}
+                                        </h2>
+                                    )}
+                                    {!collapsedKeys.has(g.key) &&
+                                        g.items.map((item) => (
+                                            <ItemCard
+                                                key={item.id}
+                                                item={item}
+                                                viewerLogin={radar.viewer?.login ?? null}
+                                                now={now}
+                                                selected={item.id === selectedId}
+                                                onSelect={() => setSelectedId(item.id)}
+                                                checked={checked.has(item.id)}
+                                                onCheck={
+                                                    radar.viewer
+                                                        ? (range) => toggleChecked(item.id, range)
+                                                        : undefined
+                                                }
+                                                onRepoClick={focusRepo}
+                                                onToast={toast}
+                                                onLabelClick={(name) =>
+                                                    setFilters((f) => ({
+                                                        ...f,
+                                                        labels: f.labels.includes(name)
+                                                            ? f.labels
+                                                            : [...f.labels, name]
+                                                    }))
+                                                }
+                                            />
+                                        ))}
+                                </section>
+                            ))
+                        )}
+                        {radar.viewer && checkedItems.length > 0 && (
+                            <BulkBar
+                                items={checkedItems}
+                                client={radar.client}
+                                viewer={radar.viewer}
+                                onPatch={radar.patchItem}
+                                onToast={toast}
+                                onClear={() => setChecked(new Set())}
+                                loadProjects={
+                                    radar.projectsAvailable === false
+                                        ? undefined
+                                        : radar.loadProjects
+                                }
+                            />
+                        )}
+                        {shown.length > visible.length && (
+                            <div className='flex flex-col items-center gap-1 py-4'>
+                                <Button
+                                    variant='secondary'
+                                    onClick={() =>
+                                        setPage({ key: pageKey, limit: limit + PAGE_SIZE })
+                                    }
+                                >
+                                    Load more
+                                </Button>
+                                <span className='text-faint text-xs'>
+                                    Showing {visible.length} of {shown.length}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                </main>
+
+                <footer className='text-faint mx-auto flex max-w-[112rem] flex-col items-center gap-2 px-4 pb-8 text-center text-xs'>
+                    <a
+                        href='https://github.com/dsebastien/github-radar'
+                        target='_blank'
+                        rel='noreferrer'
+                        className='inline-flex items-center gap-2 rounded-lg bg-white/8 px-3 py-1.5 font-semibold text-white transition hover:bg-white/14'
+                    >
+                        <GitHubIcon />
+                        GitHub Radar is open source (MIT)
+                    </a>
+                    <p>
+                        Made by{' '}
+                        <a
+                            href='https://dsebastien.net'
+                            target='_blank'
+                            rel='noreferrer'
+                            className='hover:text-white'
+                        >
+                            Sébastien Dubois
+                        </a>
+                        . Nothing leaves your browser except requests to api.github.com.
+                    </p>
+                </footer>
+
+                {selected && (
+                    <>
+                        <div
+                            className='fixed inset-0 z-30 bg-black/40'
+                            onClick={() => setSelectedId(null)}
+                        />
+                        <ItemDrawer
+                            key={selected.id}
+                            item={selected}
                             client={radar.client}
                             viewer={radar.viewer}
-                            onPatch={radar.patchItem}
+                            now={now}
+                            onClose={() => setSelectedId(null)}
+                            onPatch={(patch) => radar.patchItem(selected.id, patch)}
                             onToast={toast}
-                            onClear={() => setChecked(new Set())}
+                            onLogin={() => setDialog('login')}
                             loadProjects={
                                 radar.projectsAvailable === false ? undefined : radar.loadProjects
                             }
                         />
-                    )}
-                    {shown.length > visible.length && (
-                        <div className='flex flex-col items-center gap-1 py-4'>
-                            <Button
-                                variant='secondary'
-                                onClick={() => setPage({ key: pageKey, limit: limit + PAGE_SIZE })}
-                            >
-                                Load more
-                            </Button>
-                            <span className='text-faint text-xs'>
-                                Showing {visible.length} of {shown.length}
-                            </span>
-                        </div>
-                    )}
-                </div>
-            </main>
-
-            <footer className='text-faint mx-auto flex max-w-[112rem] flex-col items-center gap-2 px-4 pb-8 text-center text-xs'>
-                <a
-                    href='https://github.com/dsebastien/github-radar'
-                    target='_blank'
-                    rel='noreferrer'
-                    className='inline-flex items-center gap-2 rounded-lg bg-white/8 px-3 py-1.5 font-semibold text-white transition hover:bg-white/14'
-                >
-                    <GitHubIcon />
-                    GitHub Radar is open source (MIT)
-                </a>
-                <p>
-                    Made by{' '}
-                    <a
-                        href='https://dsebastien.net'
-                        target='_blank'
-                        rel='noreferrer'
-                        className='hover:text-white'
-                    >
-                        Sébastien Dubois
-                    </a>
-                    . Nothing leaves your browser except requests to api.github.com.
-                </p>
-            </footer>
-
-            {selected && (
-                <>
-                    <div
-                        className='fixed inset-0 z-30 bg-black/40'
-                        onClick={() => setSelectedId(null)}
+                    </>
+                )}
+                {dialog === 'login' && (
+                    <LoginDialog onClose={() => setDialog(null)} onToken={login} />
+                )}
+                {dialog === 'settings' && (
+                    <SettingsDialog
+                        settings={settings}
+                        onChange={setSettings}
+                        loggedIn={radar.viewer !== null}
+                        onClose={() => setDialog(null)}
+                        onReset={resetAll}
                     />
-                    <ItemDrawer
-                        key={selected.id}
-                        item={selected}
-                        client={radar.client}
-                        viewer={radar.viewer}
-                        now={now}
-                        onClose={() => setSelectedId(null)}
-                        onPatch={(patch) => radar.patchItem(selected.id, patch)}
-                        onToast={toast}
-                        onLogin={() => setDialog('login')}
-                        loadProjects={
-                            radar.projectsAvailable === false ? undefined : radar.loadProjects
-                        }
-                    />
-                </>
-            )}
-            {dialog === 'login' && <LoginDialog onClose={() => setDialog(null)} onToken={login} />}
-            {dialog === 'settings' && (
-                <SettingsDialog
-                    settings={settings}
-                    onChange={setSettings}
-                    loggedIn={radar.viewer !== null}
-                    onClose={() => setDialog(null)}
-                    onReset={resetAll}
+                )}
+                <Toasts
+                    toasts={toasts}
+                    onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))}
                 />
-            )}
-            <Toasts
-                toasts={toasts}
-                onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))}
-            />
-        </div>
+            </div>
+        </RepoActionsContext.Provider>
     )
 }
 

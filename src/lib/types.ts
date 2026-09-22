@@ -17,6 +17,8 @@ export interface Actor {
     login: string
     avatar_url: string
     html_url: string
+    /** GitHub says this account is a Bot (GitHub App). */
+    bot?: boolean
 }
 
 export type ItemType = 'issue' | 'pr'
@@ -124,6 +126,8 @@ export interface Filters {
     mine: MineFilter
     attention: AttentionFilter
     hideDrafts: boolean
+    /** Hide items opened by bots (see isBot). */
+    hideBots: boolean
     /** Pull request review and CI state; items that are not enriched PRs never match. */
     review: ReviewFilter
     /** Source keys (see sourceKey) whose items are hidden. */
@@ -145,6 +149,7 @@ export const DEFAULT_FILTERS: Filters = {
     mine: 'any',
     attention: 'any',
     hideDrafts: false,
+    hideBots: false,
     review: 'any',
     hiddenSources: [],
     sort: 'updated',

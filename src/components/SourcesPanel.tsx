@@ -21,6 +21,9 @@ interface Props {
     /** Source key that is currently the only visible one, if any. */
     focused: string | null
     onFocus: (s: Source) => void
+    /** Items per muted repository. */
+    muted: Record<string, number>
+    onUnmute: (repo: string) => void
 }
 
 const KIND_ICON: Record<Source['kind'], string> = { user: '@', org: '⌂', repo: '⎇' }
@@ -36,8 +39,12 @@ export function SourcesPanel({
     counts,
     onToggleHidden,
     focused,
-    onFocus
+    onFocus,
+    muted,
+    onUnmute
 }: Props) {
+    const mutedRepos = Object.keys(muted)
+    const mutedItems = Object.values(muted).reduce((a, b) => a + b, 0)
     const [input, setInput] = useState('')
     const [invalid, setInvalid] = useState(false)
     const implicit = effective.filter(
@@ -204,6 +211,30 @@ export function SourcesPanel({
                     )
                 })}
             </ul>
+            {mutedRepos.length > 0 && (
+                <details className='mt-3 text-xs'>
+                    <summary className='text-muted cursor-pointer'>
+                        {mutedRepos.length} muted{' '}
+                        {mutedRepos.length === 1 ? 'repository' : 'repositories'} ({mutedItems}{' '}
+                        {mutedItems === 1 ? 'item' : 'items'} hidden)
+                    </summary>
+                    <ul className='mt-1.5 space-y-1'>
+                        {mutedRepos.map((r) => (
+                            <li key={r} className='flex items-center gap-2'>
+                                <span className='text-faint min-w-0 truncate'>{r}</span>
+                                <span className='text-faint ml-auto font-mono'>{muted[r]}</span>
+                                <button
+                                    type='button'
+                                    onClick={() => onUnmute(r)}
+                                    className='text-secondary-text hover:underline'
+                                >
+                                    Unmute
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </details>
+            )}
             {sources.length > 0 && (
                 <div className='mt-3 flex justify-end'>
                     <Button variant='ghost' size='sm' onClick={() => void share()}>

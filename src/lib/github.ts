@@ -90,6 +90,7 @@ interface RawUser {
     avatar_url: string
     html_url: string
     name?: string | null
+    type?: string
 }
 
 interface RawSearchItem {
@@ -146,7 +147,9 @@ interface RawReaction {
 }
 
 function toActor(u: RawUser | null): Actor | null {
-    return u ? { login: u.login, avatar_url: u.avatar_url, html_url: u.html_url } : null
+    if (!u) return null
+    const actor: Actor = { login: u.login, avatar_url: u.avatar_url, html_url: u.html_url }
+    return u.type === 'Bot' ? { ...actor, bot: true } : actor
 }
 
 function toLabels(raw: RawSearchItem['labels']): Label[] {

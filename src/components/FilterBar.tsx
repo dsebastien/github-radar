@@ -222,6 +222,13 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                 >
                     Hide drafts
                 </Chip>
+                <Chip
+                    active={filters.hideBots}
+                    onClick={() => set({ hideBots: !filters.hideBots })}
+                    title='Hide items opened by bots (Dependabot, Renovate, GitHub Actions, apps)'
+                >
+                    Hide bots
+                </Chip>
                 {viewer && (
                     <Segmented
                         value={filters.mine}
