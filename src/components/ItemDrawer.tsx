@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import type { GitHubClient } from '@/lib/github'
-import type { Item, ItemDetail, RepoLabel, Viewer } from '@/lib/types'
+import type { Item, ItemDetail, Milestone, RepoLabel, Viewer } from '@/lib/types'
 import { formatDate, timeAgo } from '@/lib/utils'
 import { PrBadges } from './PrBadges'
 import { RepoMenu } from './RepoMenu'
@@ -42,6 +42,8 @@ export function ItemDrawer({
     const [labelsOpen, setLabelsOpen] = useState(false)
     const [repoLabels, setRepoLabels] = useState<RepoLabel[] | null>(null)
     const [confirmState, setConfirmState] = useState(false)
+    const [milestonesOpen, setMilestonesOpen] = useState(false)
+    const [repoMilestones, setRepoMilestones] = useState<Milestone[] | null>(null)
     // Desktop sizing: drag the left edge, maximize, or reset. Persisted across items and visits.
     const [width, setWidth] = usePersistedState<number>('drawerWidth', DEFAULT_WIDTH)
     const [maximized, setMaximized] = usePersistedState<boolean>('drawerMaximized', false)
@@ -137,6 +139,7 @@ export function ItemDrawer({
     const openLabels = () =>
         guard('labels', async () => {
             if (!repoLabels) setRepoLabels(await client.repoLabels(item.repo))
+            setMilestonesOpen(false)
             setLabelsOpen(true)
         })
 
@@ -147,6 +150,21 @@ export function ItemDrawer({
                 ? current.filter((n) => n !== name)
                 : [...current, name]
             onPatch({ labels: await client.setLabels(item, next) })
+        })
+
+    const openMilestones = () =>
+        guard('milestone', async () => {
+            if (milestonesOpen) return setMilestonesOpen(false)
+            if (!repoMilestones) setRepoMilestones(await client.repoMilestones(item.repo))
+            setLabelsOpen(false)
+            setMilestonesOpen(true)
+        })
+
+    const setMilestone = (m: Milestone | null) =>
+        guard('milestone', async () => {
+            const title = await client.setMilestone(item, m?.number ?? null)
+            onPatch({ milestone: title, updated_at: new Date().toISOString() })
+            setMilestonesOpen(false)
         })
 
     const isAssigned = viewer ? item.assignees.some((a) => a.login === viewer.login) : false
@@ -283,6 +301,9 @@ export function ItemDrawer({
                 <Button size='sm' onClick={() => void openLabels()} disabled={busy !== null}>
                     🏷 Labels
                 </Button>
+                <Button size='sm' onClick={() => void openMilestones()} disabled={busy !== null}>
+                    ◆ {item.milestone ?? 'Milestone'}
+                </Button>
                 <Button size='sm' onClick={() => void assign()} disabled={busy !== null}>
                     {isAssigned ? 'Unassign me' : 'Assign me'}
                 </Button>
@@ -328,6 +349,38 @@ export function ItemDrawer({
                             onClick={() => void toggleLabel(l.name)}
                         />
                     ))}
+                </div>
+            )}
+
+            {milestonesOpen && repoMilestones && (
+                <div className='border-line bg-well flex max-h-48 flex-wrap gap-1.5 overflow-y-auto border-b p-3'>
+                    {repoMilestones.length === 0 && (
+                        <span className='text-faint text-xs'>
+                            This repository has no open milestones.
+                        </span>
+                    )}
+                    {repoMilestones.map((m) => (
+                        <Button
+                            key={m.number}
+                            size='sm'
+                            variant={item.milestone === m.title ? 'primary' : 'secondary'}
+                            onClick={() => void setMilestone(m)}
+                            disabled={busy !== null}
+                            title={m.due_on ? `Due ${formatDate(m.due_on)}` : undefined}
+                        >
+                            ◆ {m.title}
+                        </Button>
+                    ))}
+                    {item.milestone && (
+                        <Button
+                            size='sm'
+                            variant='ghost'
+                            onClick={() => void setMilestone(null)}
+                            disabled={busy !== null}
+                        >
+                            Clear milestone
+                        </Button>
+                    )}
                 </div>
             )}
 

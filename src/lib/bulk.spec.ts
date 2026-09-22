@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { applicability, labelOptions, rangeIds, runBulk } from './bulk'
+import { applicability, labelOptions, milestoneOptions, rangeIds, runBulk } from './bulk'
 import type { Item } from './types'
 
 function item(id: number, repo = 'o/r', labels: string[] = []): Item {
@@ -91,6 +91,20 @@ describe('labelOptions', () => {
         expect(options).toEqual([
             { name: 'bug', color: 'f00', available: 2, applied: 1 },
             { name: 'docs', color: '00f', available: 1, applied: 0 }
+        ])
+    })
+})
+
+describe('milestoneOptions', () => {
+    test('matches titles across repositories and lists the ones missing it', () => {
+        const a = { ...item(1, 'a/a'), milestone: 'v2' }
+        const options = milestoneOptions([a, item(2, 'b/b'), item(3, 'b/b')], {
+            'a/a': [{ title: 'v2' }],
+            'b/b': [{ title: 'V2' }, { title: 'later' }]
+        })
+        expect(options).toEqual([
+            { title: 'v2', available: 3, applied: 1, missingRepos: [] },
+            { title: 'later', available: 2, applied: 0, missingRepos: ['a/a'] }
         ])
     })
 })

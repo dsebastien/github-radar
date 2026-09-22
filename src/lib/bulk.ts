@@ -86,3 +86,37 @@ export function labelOptions(
         (a, b) => b.available - a.available || a.name.localeCompare(b.name)
     )
 }
+
+export interface MilestoneOption {
+    title: string
+    /** Selected items whose repository has an open milestone with this title. */
+    available: number
+    /** Selected items already in it. */
+    applied: number
+    /** Repositories of the selection that lack it. */
+    missingRepos: string[]
+}
+
+/**
+ * Milestone titles offered for a selection, matched across repositories by title
+ * (case-insensitive), with how many items could take each and which repositories lack it.
+ */
+export function milestoneOptions(
+    items: Item[],
+    repoMilestones: Record<string, Array<{ title: string }> | undefined>
+): MilestoneOption[] {
+    const repos = [...new Set(items.map((i) => i.repo))]
+    const titles = new Map<string, string>()
+    for (const r of repos)
+        for (const m of repoMilestones[r] ?? []) {
+            if (!titles.has(m.title.toLowerCase())) titles.set(m.title.toLowerCase(), m.title)
+        }
+    const has = (repo: string, key: string) =>
+        (repoMilestones[repo] ?? []).some((m) => m.title.toLowerCase() === key)
+    return Array.from(titles, ([key, title]) => ({
+        title,
+        available: items.filter((i) => has(i.repo, key)).length,
+        applied: items.filter((i) => i.milestone?.toLowerCase() === key).length,
+        missingRepos: repos.filter((r) => !has(r, key))
+    })).sort((a, b) => b.available - a.available || a.title.localeCompare(b.title))
+}

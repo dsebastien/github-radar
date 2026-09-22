@@ -1,8 +1,14 @@
 import clsx from 'clsx'
 import { useRef, useState } from 'react'
-import { applicability, labelOptions, runBulk, type BulkFailure } from '@/lib/bulk'
+import {
+    applicability,
+    labelOptions,
+    milestoneOptions,
+    runBulk,
+    type BulkFailure
+} from '@/lib/bulk'
 import type { GitHubClient } from '@/lib/github'
-import type { Item, RepoLabel, Viewer } from '@/lib/types'
+import type { Item, Milestone, RepoLabel, Viewer } from '@/lib/types'
 import { pluralize } from '@/lib/utils'
 import { Button, LabelChip, Spinner } from './ui'
 
@@ -15,7 +21,7 @@ interface Props {
     onClear: () => void
 }
 
-type Panel = 'labels' | 'close' | null
+type Panel = 'labels' | 'milestone' | 'close' | null
 
 /**
  * Sticky bar for acting on the selected items. Every action runs item by item with a progress
@@ -29,6 +35,9 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Pr
     const [failures, setFailures] = useState<BulkFailure[]>([])
     const [repoLabels, setRepoLabels] = useState<Record<string, RepoLabel[]>>({})
     const [loadingLabels, setLoadingLabels] = useState(false)
+    const [repoMilestones, setRepoMilestones] = useState<Record<string, Milestone[]>>({})
+    const [loadingMilestones, setLoadingMilestones] = useState(false)
+    const [createMissing, setCreateMissing] = useState(false)
     const abortRef = useRef<AbortController | null>(null)
 
     const me = viewer.login.toLowerCase()
@@ -79,6 +88,50 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Pr
         setLoadingLabels(false)
     }
 
+    const openMilestones = async () => {
+        if (panel === 'milestone') return setPanel(null)
+        setPanel('milestone')
+        const missing = [...new Set(items.map((i) => i.repo))].filter((r) => !repoMilestones[r])
+        if (missing.length === 0) return
+        setLoadingMilestones(true)
+        const loaded: Record<string, Milestone[]> = {}
+        for (const repo of missing) {
+            try {
+                loaded[repo] = await client.repoMilestones(repo)
+            } catch {
+                loaded[repo] = []
+            }
+        }
+        setRepoMilestones((r) => ({ ...r, ...loaded }))
+        setLoadingMilestones(false)
+    }
+
+    /** Set a milestone by title; with `create`, first create it in the repositories lacking it. */
+    const assignMilestone = async (title: string, missingRepos: string[], create: boolean) => {
+        const key = title.toLowerCase()
+        const known: Record<string, Milestone[]> = { ...repoMilestones }
+        if (create) {
+            for (const repo of missingRepos) {
+                try {
+                    const m = await client.createMilestone(repo, title)
+                    known[repo] = [...(known[repo] ?? []), m]
+                } catch (e) {
+                    onToast(`Could not create “${title}” in ${repo}: ${String(e)}`)
+                }
+            }
+            setRepoMilestones(known)
+        }
+        const numberIn = (repo: string) =>
+            known[repo]?.find((m) => m.title.toLowerCase() === key)?.number
+        await run(
+            `Milestone “${title}”`,
+            items.filter(
+                (i) => numberIn(i.repo) !== undefined && i.milestone?.toLowerCase() !== key
+            ),
+            async (i) => ({ milestone: await client.setMilestone(i, numberIn(i.repo)!) })
+        )
+    }
+
     const hasLabel = (i: Item, name: string) =>
         i.labels.some((l) => l.name.toLowerCase() === name.toLowerCase())
     const repoHas = (i: Item, name: string) =>
@@ -122,6 +175,14 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Pr
                     aria-expanded={panel === 'labels'}
                 >
                     🏷 Labels
+                </Button>
+                <Button
+                    size='sm'
+                    onClick={() => void openMilestones()}
+                    disabled={busy}
+                    aria-expanded={panel === 'milestone'}
+                >
+                    ◆ Milestone
                 </Button>
                 <Button
                     size='sm'
@@ -184,6 +245,79 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Pr
                             onAdd={(n) => void addLabel(n)}
                             onRemove={(n) => void removeLabel(n)}
                         />
+                    )}
+                </div>
+            )}
+
+            {panel === 'milestone' && (
+                <div className='border-line mt-3 max-h-56 space-y-1.5 overflow-y-auto border-t pt-3 text-xs'>
+                    {loadingMilestones ? (
+                        <span className='text-muted flex items-center gap-2'>
+                            <Spinner /> Loading the repositories’ milestones…
+                        </span>
+                    ) : (
+                        <>
+                            {milestoneOptions(items, repoMilestones).map((o) => (
+                                <div key={o.title} className='flex flex-wrap items-center gap-2'>
+                                    <Button
+                                        size='sm'
+                                        disabled={
+                                            (createMissing ? items.length : o.available) ===
+                                            o.applied
+                                        }
+                                        onClick={() =>
+                                            void assignMilestone(
+                                                o.title,
+                                                o.missingRepos,
+                                                createMissing
+                                            )
+                                        }
+                                    >
+                                        ◆ {o.title}
+                                    </Button>
+                                    <span className='text-muted'>
+                                        {o.available === items.length
+                                            ? `all ${items.length} items`
+                                            : `applies to ${o.available} of ${items.length}`}
+                                        {o.applied > 0 && `, ${o.applied} already in it`}
+                                        {o.missingRepos.length > 0 &&
+                                            ` · missing in ${o.missingRepos.length} repo${o.missingRepos.length === 1 ? '' : 's'}`}
+                                    </span>
+                                </div>
+                            ))}
+                            {milestoneOptions(items, repoMilestones).length === 0 && (
+                                <span className='text-faint'>
+                                    These repositories have no open milestones.
+                                </span>
+                            )}
+                            <div className='flex flex-wrap items-center gap-3 pt-1'>
+                                <label className='text-muted flex items-center gap-1.5'>
+                                    <input
+                                        type='checkbox'
+                                        checked={createMissing}
+                                        onChange={(e) => setCreateMissing(e.target.checked)}
+                                        className='accent-secondary'
+                                    />
+                                    Create the milestone in repositories that lack it
+                                </label>
+                                <Button
+                                    size='sm'
+                                    variant='ghost'
+                                    disabled={items.every((i) => !i.milestone)}
+                                    onClick={() =>
+                                        void run(
+                                            'Clear milestone',
+                                            items.filter((i) => i.milestone),
+                                            async (i) => ({
+                                                milestone: await client.setMilestone(i, null)
+                                            })
+                                        )
+                                    }
+                                >
+                                    Clear milestone
+                                </Button>
+                            </div>
+                        </>
                     )}
                 </div>
             )}

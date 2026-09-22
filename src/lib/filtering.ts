@@ -1,6 +1,14 @@
 import { matchesReview } from './enrichment'
 import { sourceKey } from './sources'
-import type { AttentionFilter, Filters, GroupKey, Item, SortKey, Source } from './types'
+import {
+    NO_MILESTONE,
+    type AttentionFilter,
+    type Filters,
+    type GroupKey,
+    type Item,
+    type SortKey,
+    type Source
+} from './types'
 
 const DAY = 86_400_000
 export const STALE_DAYS = 30
@@ -82,19 +90,22 @@ export function pruneFilters(f: Filters, items: Item[], sources: Source[]): Filt
     const labels = new Set(visible.flatMap((i) => i.labels.map((l) => lower(l.name))))
     const authors = new Set(visible.flatMap((i) => (i.author ? [lower(i.author.login)] : [])))
     const assignees = new Set(visible.flatMap((i) => i.assignees.map((a) => lower(a.login))))
+    const milestones = new Set(visible.map((i) => lower(i.milestone ?? NO_MILESTONE)))
     const keep = (list: string[], set: Set<string>) => list.filter((v) => set.has(lower(v)))
     const next = {
         ...f,
         repos: keep(f.repos, repos),
         labels: keep(f.labels, labels),
         authors: keep(f.authors, authors),
-        assignees: keep(f.assignees, assignees)
+        assignees: keep(f.assignees, assignees),
+        milestones: keep(f.milestones, milestones)
     }
     const unchanged =
         next.repos.length === f.repos.length &&
         next.labels.length === f.labels.length &&
         next.authors.length === f.authors.length &&
-        next.assignees.length === f.assignees.length
+        next.assignees.length === f.assignees.length &&
+        next.milestones.length === f.milestones.length
     return unchanged ? f : next
 }
 
@@ -139,6 +150,8 @@ export function applyFilters(items: Item[], f: Filters, ctx: FilterContext): Ite
                 f.assignees
             )
         )
+            return false
+        if (f.milestones.length > 0 && !hasAny([item.milestone ?? NO_MILESTONE], f.milestones))
             return false
         if (f.mine !== 'any') {
             const me = ctx.viewerLogin?.toLowerCase()
@@ -199,6 +212,8 @@ export interface Facets {
     repos: Array<{ name: string; count: number }>
     authors: Array<{ login: string; avatar_url: string; count: number }>
     assignees: Array<{ login: string; avatar_url: string; count: number }>
+    /** By title across repositories; `repos` is how many repositories share the title. */
+    milestones: Array<{ title: string; count: number; repos: number }>
 }
 
 /** Distinct filter values with counts, computed from the full (unfiltered) item set. */
@@ -207,7 +222,14 @@ export function computeFacets(items: Item[]): Facets {
     const repos = new Map<string, number>()
     const authors = new Map<string, { login: string; avatar_url: string; count: number }>()
     const assignees = new Map<string, { login: string; avatar_url: string; count: number }>()
+    const milestones = new Map<string, { title: string; count: number; repos: Set<string> }>()
     for (const item of items) {
+        const title = item.milestone ?? NO_MILESTONE
+        const m = milestones.get(title.toLowerCase())
+        if (m) {
+            m.count++
+            m.repos.add(item.repo)
+        } else milestones.set(title.toLowerCase(), { title, count: 1, repos: new Set([item.repo]) })
         for (const l of item.labels) {
             const e = labels.get(l.name)
             if (e) e.count++
@@ -230,6 +252,12 @@ export function computeFacets(items: Item[]): Facets {
         labels: Array.from(labels.values()).sort(byCount),
         repos: Array.from(repos, ([name, count]) => ({ name, count })).sort(byCount),
         authors: Array.from(authors.values()).sort(byCount),
-        assignees: Array.from(assignees.values()).sort(byCount)
+        assignees: Array.from(assignees.values()).sort(byCount),
+        milestones: Array.from(milestones.values())
+            .map((m) => ({ title: m.title, count: m.count, repos: m.repos.size }))
+            .sort((a, b) =>
+                // "No milestone" last, the rest by count.
+                a.title === NO_MILESTONE ? 1 : b.title === NO_MILESTONE ? -1 : byCount(a, b)
+            )
     }
 }

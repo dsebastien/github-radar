@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Facets } from '@/lib/filtering'
-import { DEFAULT_FILTERS, type Filters, type Viewer } from '@/lib/types'
+import { DEFAULT_FILTERS, NO_MILESTONE, type Filters, type Viewer } from '@/lib/types'
 import { Avatar, Button, Chip, LabelChip } from './ui'
 
 interface Props {
@@ -21,7 +21,8 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
         filters.labels.length +
         filters.repos.length +
         filters.authors.length +
-        filters.assignees.length
+        filters.assignees.length +
+        filters.milestones.length
     const isDefault = JSON.stringify(filters) === JSON.stringify(DEFAULT_FILTERS)
 
     return (
@@ -117,6 +118,27 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                         >
                             <Avatar actor={{ ...a, html_url: '' }} size={16} />
                             <span className='truncate'>{a.login}</span>
+                        </Row>
+                    ))}
+                </Dropdown>
+                <Dropdown label='Milestones' count={filters.milestones.length}>
+                    {facets.milestones.map((m) => (
+                        <Row
+                            key={m.title}
+                            active={filters.milestones.includes(m.title)}
+                            onClick={() => set({ milestones: toggle(filters.milestones, m.title) })}
+                            count={m.count}
+                        >
+                            <span
+                                className={clsx('truncate', m.title === NO_MILESTONE && 'italic')}
+                            >
+                                {m.title === NO_MILESTONE ? 'No milestone' : `◆ ${m.title}`}
+                            </span>
+                            {m.repos > 1 && m.title !== NO_MILESTONE && (
+                                <span className='text-faint shrink-0 text-[10px]'>
+                                    {m.repos} repos
+                                </span>
+                            )}
                         </Row>
                     ))}
                 </Dropdown>
@@ -238,6 +260,15 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                             onClick={() => set({ authors: toggle(filters.authors, a) })}
                         >
                             by {a} ×
+                        </Chip>
+                    ))}
+                    {filters.milestones.map((m) => (
+                        <Chip
+                            key={`m-${m}`}
+                            active
+                            onClick={() => set({ milestones: toggle(filters.milestones, m) })}
+                        >
+                            {m === NO_MILESTONE ? 'no milestone' : `◆ ${m}`} ×
                         </Chip>
                     ))}
                     {filters.assignees.map((a) => (

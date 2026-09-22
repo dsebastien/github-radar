@@ -92,6 +92,8 @@ export interface Filters {
     repos: string[]
     authors: string[]
     assignees: string[]
+    /** Milestone titles (matched across repositories), or NO_MILESTONE. */
+    milestones: string[]
     mine: MineFilter
     attention: AttentionFilter
     hideDrafts: boolean
@@ -111,6 +113,7 @@ export const DEFAULT_FILTERS: Filters = {
     repos: [],
     authors: [],
     assignees: [],
+    milestones: [],
     mine: 'any',
     attention: 'any',
     hideDrafts: false,
@@ -119,6 +122,9 @@ export const DEFAULT_FILTERS: Filters = {
     sort: 'updated',
     group: 'none'
 }
+
+/** Milestone filter value for items without a milestone. */
+export const NO_MILESTONE = '(none)'
 
 export interface Settings {
     /** When logged in, also search the viewer's own account and every org they belong to. */
@@ -150,6 +156,12 @@ export interface ItemDetail {
     body_html: string
     viewerReacted: boolean
     comments: Comment[]
+}
+
+export interface Milestone {
+    number: number
+    title: string
+    due_on: string | null
 }
 
 export interface RepoLabel {

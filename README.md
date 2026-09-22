@@ -12,11 +12,12 @@ Static, private, and generic: it runs entirely in your browser, talks only to `a
 - **Optional login** with a fine-grained personal access token: private repositories, a much higher API rate limit, and automatic inclusion of your own account and every organization you belong to.
 - **Focus**: click a source to see only its items (click again to widen back); click a repository name on any card to filter down to that repository.
 - **Per-source visibility**: an eye toggle on each source shows or hides its items without removing it; each source shows how many items it contributes.
-- **Filters**: full-text (title, repo, `#number`, author, label), issue/PR, open/closed, labels, repos, authors, assignees, draft PRs, and "mine" shortcuts (assigned to me, by me, involved).
+- **Filters**: full-text (title, repo, `#number`, author, label), issue/PR, open/closed, labels, repos, authors, assignees, milestones (by title across repositories, or none), draft PRs, and "mine" shortcuts (assigned to me, by me, involved).
 - **Needs-attention signals**: stale (30+ days idle), dormant (90+ days), unlabeled, unassigned, draft.
 - **Load more**: the list renders 50 cards at a time; a button at the bottom loads the next batch.
 - **Sort and group**: by recent activity, creation date, discussion, or title; group by repository or author.
 - **Actions when logged in**: 👍 upvote, comment (Markdown), add/remove labels, assign/unassign yourself, close/reopen (with confirmation).
+- **Milestones** (logged in): set or clear an item's milestone from its panel. In bulk, pick a title shared by the selected items' repositories (each option says how many items it applies to) and optionally create it in the repositories that lack it.
 - **Bulk actions** (logged in): a checkbox on every card (shift-click for a range) or "Select all N shown", then add/remove labels, assign/unassign yourself, or close/reopen from a sticky bar. Actions run item by item with a progress counter and a cancel button; failures are listed per item. Options that only fit part of the selection say how many items they apply to.
 - **Persistence**: sources, filters, settings, token and the last result set live in `localStorage`, so the dashboard paints instantly on the next visit and refreshes in the background (interval configurable).
 - **Shareable presets**: `?sources=user:dsebastien,org:knowii-oss,DeveloPassion/obsidian-starter-kit-plugin` pre-fills the sources on first load. Use the "Share this view" button.

@@ -75,6 +75,7 @@ describe('applyFilters', () => {
         expect(run({ authors: ['bob'] })).toEqual([2])
         expect(run({ assignees: ['bob'] })).toEqual([1])
         expect(run({ state: 'all' })).toEqual([1, 2, 3, 4])
+        expect(run({ milestones: ['(none)'] })).toEqual([1, 2, 3])
     })
     test('"mine" shortcuts use the viewer login', () => {
         const run = (mine: typeof DEFAULT_FILTERS.mine, login: string | null) =>
@@ -198,5 +199,17 @@ describe('computeFacets', () => {
             ['bob', 1]
         ])
         expect(f.assignees.map((a) => a.login)).toEqual(['bob'])
+        expect(f.milestones).toEqual([{ title: '(none)', count: 4, repos: 2 }])
+    })
+    test('milestones group by title across repositories, "none" last', () => {
+        const f = computeFacets([
+            item({ id: 1, milestone: 'v1' }),
+            item({ id: 2, milestone: 'V1', repo: 'o/other' }),
+            item({ id: 3 })
+        ])
+        expect(f.milestones).toEqual([
+            { title: 'v1', count: 2, repos: 2 },
+            { title: '(none)', count: 1, repos: 1 }
+        ])
     })
 })

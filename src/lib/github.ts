@@ -6,6 +6,7 @@ import type {
     Item,
     ItemDetail,
     Label,
+    Milestone,
     RateLimit,
     RepoLabel,
     Source,
@@ -544,7 +545,32 @@ export class GitHubClient {
         }))
     }
 
+    /** Open milestones of a repository, soonest due first. */
+    async repoMilestones(repo: string): Promise<Milestone[]> {
+        const { data } = await this.request<Milestone[]>(
+            `/repos/${repo}/milestones?state=open&sort=due_on&direction=asc&per_page=100`
+        )
+        return data.map((m) => ({ number: m.number, title: m.title, due_on: m.due_on ?? null }))
+    }
+
     // ---- Write (token with Issues + Pull requests read/write) -----------------
+
+    /** Set or clear (null) the milestone. Returns the new milestone title. */
+    async setMilestone(item: Item, milestone: number | null): Promise<string | null> {
+        const { data } = await this.request<{ milestone: { title: string } | null }>(
+            `/repos/${item.repo}/issues/${item.number}`,
+            { method: 'PATCH', body: { milestone } }
+        )
+        return data.milestone?.title ?? null
+    }
+
+    async createMilestone(repo: string, title: string): Promise<Milestone> {
+        const { data } = await this.request<Milestone>(`/repos/${repo}/milestones`, {
+            method: 'POST',
+            body: { title }
+        })
+        return { number: data.number, title: data.title, due_on: data.due_on ?? null }
+    }
 
     /** Toggle the viewer's 👍. Returns the new state. */
     async toggleUpvote(item: Item, viewerLogin: string): Promise<boolean> {
