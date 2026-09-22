@@ -1,6 +1,6 @@
 {
     "name": "github-radar",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Keep every open GitHub issue and pull request across the users, organizations and repositories you care about on your radar. Static, private, runs entirely in your browser.",
     "author": {
         "name": "Sébastien Dubois",
