@@ -63,6 +63,12 @@ export interface FilterContext {
     /** When the previous visit ended, for the "new" filter; null on a first visit. */
     lastVisit?: number | null
     viewerLogin: string | null
+    /** Items the viewer is mentioned in, asked to review, or commented on. */
+    involvement?: {
+        mentioned: Set<number>
+        reviewRequested: Set<number>
+        commented: Set<number>
+    } | null
     /** The effective sources, used to resolve which source(s) an item came from. */
     sources: Source[]
 }
@@ -186,6 +192,10 @@ export function applyFilters(items: Item[], f: Filters, ctx: FilterContext): Ite
             if (f.mine === 'authored' && !authored) return false
             if (f.mine === 'assigned' && !assigned) return false
             if (f.mine === 'involved' && !authored && !assigned) return false
+            const inv = ctx.involvement
+            if (f.mine === 'mentioned' && !inv?.mentioned.has(item.id)) return false
+            if (f.mine === 'review-requested' && !inv?.reviewRequested.has(item.id)) return false
+            if (f.mine === 'commented' && !inv?.commented.has(item.id)) return false
         }
         if (!matchesReview(item, f.review, ctx.viewerLogin)) return false
         if (f.attention !== 'any' && !attentionFlags(item, ctx.now).includes(f.attention))

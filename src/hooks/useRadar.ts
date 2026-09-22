@@ -5,7 +5,16 @@ import { itemSources } from '@/lib/filtering'
 import { applyProjects, carryProjects, needsProjects, projectOwners } from '@/lib/projects'
 import { effectiveSources, sourceKey } from '@/lib/sources'
 import { load, remove, save } from '@/lib/storage'
-import type { Item, Project, RateLimit, Settings, Source, StateFilter, Viewer } from '@/lib/types'
+import type {
+    Involvement,
+    Item,
+    Project,
+    RateLimit,
+    Settings,
+    Source,
+    StateFilter,
+    Viewer
+} from '@/lib/types'
 
 interface SourceStamp {
     /** When the last (incremental or full) fetch of this source started. */
@@ -25,6 +34,8 @@ interface Cache {
     truncated: boolean
     /** Sources GitHub refused to search at the last fetch (missing, or not visible). */
     invalid?: Source[]
+    /** Items the viewer is mentioned in, asked to review, or commented on (logged in). */
+    involvement?: Involvement
 }
 
 /** A fresh search result keeps the cached enrichments until they are refetched. */
@@ -56,6 +67,8 @@ export interface RadarState {
     /** Incremental by default; `full` refetches every visible source from scratch. */
     refresh: (mode?: 'auto' | 'full') => void
     patchItem: (id: number, patch: Partial<Item>) => void
+    /** From the last refresh, logged in only. */
+    involvement: Involvement | null
     /** null until known; false when the token cannot read projects (no Projects permission). */
     projectsAvailable: boolean | null
     /** Projects of the source owners and the viewer, loaded on demand (logged in only). */
@@ -321,8 +334,22 @@ export function useRadar(
                             }
                         }
                     }
-                    if (items !== next.items) {
-                        const enriched = { ...next, items }
+                    // Involvement searches (mentions, review requests, comments): a few more
+                    // queries per refresh, merged as flags. Kept from the last success on error.
+                    let involvement = base?.involvement
+                    try {
+                        involvement = await client.involvement(state, controller.signal)
+                        if (controller.signal.aborted) return
+                    } catch (e) {
+                        if (controller.signal.aborted) return
+                        setError(
+                            `Mentions, review requests and comments could not be loaded: ${
+                                e instanceof Error ? e.message : String(e)
+                            }`
+                        )
+                    }
+                    if (items !== next.items || involvement !== next.involvement) {
+                        const enriched = { ...next, items, involvement }
                         setCache(enriched)
                         save(CACHE_KEY, enriched)
                     }
@@ -424,6 +451,7 @@ export function useRadar(
         effective,
         refresh: (mode = 'auto') => void run(mode),
         patchItem,
+        involvement: (token !== null && usable?.involvement) || null,
         projectsAvailable: projectsState.available,
         projects: projectsState.list,
         loadProjects

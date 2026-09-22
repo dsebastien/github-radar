@@ -97,6 +97,23 @@ describe('applyFilters', () => {
         expect(run(null)).toEqual([])
         expect(isNew(fixtures[0]!, NOW)).toBe(false)
     })
+    test('involvement filters use the involvement sets', () => {
+        const involvement = {
+            mentioned: new Set([2]),
+            reviewRequested: new Set([3]),
+            commented: new Set([1, 2])
+        }
+        const run = (mine: typeof DEFAULT_FILTERS.mine, withSets = true) =>
+            applyFilters(
+                fixtures,
+                { ...DEFAULT_FILTERS, mine },
+                { ...ctx, viewerLogin: 'alice', involvement: withSets ? involvement : null }
+            ).map((i) => i.id)
+        expect(run('mentioned')).toEqual([2])
+        expect(run('review-requested')).toEqual([3])
+        expect(run('commented')).toEqual([1, 2])
+        expect(run('mentioned', false)).toEqual([])
+    })
     test('"mine" shortcuts use the viewer login', () => {
         const run = (mine: typeof DEFAULT_FILTERS.mine, login: string | null) =>
             applyFilters(

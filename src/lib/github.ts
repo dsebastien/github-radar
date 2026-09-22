@@ -4,6 +4,7 @@ import { buildQuery, chunkSources } from './query'
 import type {
     Actor,
     Comment,
+    Involvement,
     Item,
     ItemDetail,
     Label,
@@ -467,6 +468,34 @@ export class GitHubClient {
             }
         }
         return { items: Array.from(byId.values()), truncated, invalid }
+    }
+
+    /**
+     * Ids of the items the viewer is mentioned in, asked to review, or commented on, across
+     * GitHub (callers keep the ones they list). One search per qualifier and type; token only,
+     * since `@me` needs a viewer. Capped at 1000 results per query, most recently updated first.
+     */
+    async involvement(state: StateFilter, signal?: AbortSignal): Promise<Involvement> {
+        const ids = async (qualifier: string, types: readonly string[]) => {
+            const out: number[] = []
+            for (const type of types) {
+                const q = buildQuery([], state, [qualifier, type])
+                for (let page = 1; page <= SEARCH_CEILING / 100; page++) {
+                    const { data } = await this.request<RawSearch>(
+                        `/search/issues?q=${encodeURIComponent(q)}&sort=updated&order=desc&per_page=100&page=${page}`,
+                        { signal }
+                    )
+                    out.push(...data.items.map((i) => i.id))
+                    if (data.items.length < 100 || page * 100 >= data.total_count) break
+                }
+            }
+            return out
+        }
+        return {
+            mentioned: await ids('mentions:@me', ITEM_TYPES),
+            reviewRequested: await ids('review-requested:@me', ['is:pull-request']),
+            commented: await ids('commenter:@me', ITEM_TYPES)
+        }
     }
 
     /**

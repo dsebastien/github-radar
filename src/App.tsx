@@ -142,6 +142,15 @@ export function App() {
         () => visibleBySources(denoised, radar.effective, filters.hiddenSources),
         [denoised, radar.effective, filters.hiddenSources]
     )
+    const involvementSets = useMemo(
+        () =>
+            radar.involvement && {
+                mentioned: new Set(radar.involvement.mentioned),
+                reviewRequested: new Set(radar.involvement.reviewRequested),
+                commented: new Set(radar.involvement.commented)
+            },
+        [radar.involvement]
+    )
     // Project memberships mean nothing when the token cannot read projects: no facet, no filter.
     const projectsOn = radar.projectsAvailable === true
     const facets = useMemo(() => {
@@ -154,12 +163,22 @@ export function App() {
                 applyFilters(denoised, projectsOn ? filters : { ...filters, projects: [] }, {
                     now,
                     lastVisit,
+                    involvement: involvementSets,
                     viewerLogin: radar.viewer?.login ?? null,
                     sources: radar.effective
                 }),
                 filters.sort
             ),
-        [denoised, filters, now, lastVisit, radar.viewer?.login, radar.effective, projectsOn]
+        [
+            denoised,
+            filters,
+            now,
+            lastVisit,
+            involvementSets,
+            radar.viewer?.login,
+            radar.effective,
+            projectsOn
+        ]
     )
     // "Load more" paging, reset whenever the filtered list changes identity.
     const pageKey = `${JSON.stringify(filters)}|${radar.items.length}`

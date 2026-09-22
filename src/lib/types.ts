@@ -100,7 +100,8 @@ export type TypeFilter = 'all' | 'issue' | 'pr'
 export type StateFilter = 'open' | 'closed' | 'all'
 export type SortKey = 'updated' | 'created' | 'comments' | 'title'
 export type GroupKey = 'none' | 'repo' | 'author'
-export type MineFilter = 'any' | 'assigned' | 'authored' | 'involved'
+export type MineFilter =
+    'any' | 'assigned' | 'authored' | 'involved' | 'mentioned' | 'review-requested' | 'commented'
 export type ReviewFilter =
     | 'any'
     | 'needs-my-review'
@@ -163,6 +164,16 @@ export const DEFAULT_FILTERS: Filters = {
 export const NO_MILESTONE = '(none)'
 /** Project filter value for items in no project. */
 export const NO_PROJECT = '(none)'
+
+/**
+ * Item ids the viewer is involved in beyond authoring and assignment, from dedicated searches
+ * (`mentions:@me`, `review-requested:@me`, `commenter:@me`). Logged in only.
+ */
+export interface Involvement {
+    mentioned: number[]
+    reviewRequested: number[]
+    commented: number[]
+}
 
 export interface Settings {
     /** When logged in, also search the viewer's own account and every org they belong to. */

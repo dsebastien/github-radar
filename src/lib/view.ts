@@ -5,7 +5,7 @@ import { DEFAULT_FILTERS, type Filters, type Source } from './types'
 const ENUMS: Partial<Record<keyof Filters, readonly string[]>> = {
     type: ['all', 'issue', 'pr'],
     state: ['open', 'closed', 'all'],
-    mine: ['any', 'assigned', 'authored', 'involved'],
+    mine: ['any', 'assigned', 'authored', 'involved', 'mentioned', 'review-requested', 'commented'],
     attention: ['any', 'stale', 'dormant', 'unlabeled', 'unassigned', 'draft'],
     review: [
         'any',

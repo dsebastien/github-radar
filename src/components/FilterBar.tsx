@@ -242,6 +242,17 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                         onChange={(mine) => set({ mine })}
                     />
                 )}
+                {viewer && (
+                    <Segmented
+                        value={filters.mine}
+                        options={[
+                            ['mentioned', 'Mentions me'],
+                            ['review-requested', 'Review requested'],
+                            ['commented', 'Commented']
+                        ]}
+                        onChange={(mine) => set({ mine: filters.mine === mine ? 'any' : mine })}
+                    />
+                )}
                 {!isDefault && (
                     <Button
                         variant='ghost'
