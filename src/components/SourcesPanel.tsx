@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { copyText } from '@/lib/repo'
-import { parseSource, serializeSources, sourceKey, sourceLabel } from '@/lib/sources'
-import type { Source, Viewer } from '@/lib/types'
+import { parseSource, sourceKey, sourceLabel } from '@/lib/sources'
+import { shareUrl } from '@/lib/view'
+import type { Filters, Source, Viewer } from '@/lib/types'
 import { RepoMenu } from './RepoMenu'
 import { Button, ExternalIcon, SectionTitle } from './ui'
 
@@ -24,6 +25,8 @@ interface Props {
     /** Items per muted repository. */
     muted: Record<string, number>
     onUnmute: (repo: string) => void
+    /** The current view, included in the share link. */
+    filters: Filters
 }
 
 const KIND_ICON: Record<Source['kind'], string> = { user: '@', org: '⌂', repo: '⎇' }
@@ -41,7 +44,8 @@ export function SourcesPanel({
     focused,
     onFocus,
     muted,
-    onUnmute
+    onUnmute,
+    filters
 }: Props) {
     const mutedRepos = Object.keys(muted)
     const mutedItems = Object.values(muted).reduce((a, b) => a + b, 0)
@@ -66,14 +70,11 @@ export function SourcesPanel({
     }
 
     const share = async () => {
-        const url = new URL(window.location.href)
-        url.search = sources.length
-            ? `?sources=${encodeURIComponent(serializeSources(sources))}`
-            : ''
+        const url = shareUrl(window.location.href, sources, filters)
         onToast(
-            (await copyText(url.toString()))
-                ? 'Link copied. Anyone opening it gets these sources pre-filled.'
-                : url.toString()
+            (await copyText(url))
+                ? 'Link copied. It opens these sources with the current filters, sort and grouping.'
+                : url
         )
     }
 

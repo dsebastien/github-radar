@@ -11,6 +11,7 @@ import { RepoMenu } from './components/RepoMenu'
 import { LoginDialog } from './components/LoginDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SourcesPanel } from './components/SourcesPanel'
+import { ViewsPanel } from './components/ViewsPanel'
 import { StatsRow } from './components/StatsRow'
 import { Toasts, type Toast } from './components/Toasts'
 import { Button, GitHubIcon, Spinner } from './components/ui'
@@ -18,6 +19,7 @@ import { usePersistedState } from './hooks/usePersistedState'
 import { useLastVisit } from './hooks/useLastVisit'
 import { useRadar } from './hooks/useRadar'
 import { rangeIds } from './lib/bulk'
+import { parseView, VIEW_PARAMS, type SavedView } from './lib/view'
 import { mutedCounts, removeNoise, toggleMuted } from './lib/noise'
 import {
     applyFilters,
@@ -45,21 +47,41 @@ const TOKEN_KEY = 'token'
 /** Cards rendered before the "Load more" button. */
 const PAGE_SIZE = 50
 
-/** Sources from `?sources=` are merged into the persisted list once, then the param is removed. */
+/**
+ * A preset from the page URL, read once: `?sources=` is merged into the persisted sources,
+ * and view parameters (filters, sort, grouping) replace the persisted filters. The parameters
+ * are then removed from the address.
+ */
+const urlPreset = (() => {
+    let preset: { sources: Source[]; view: Filters | null } | null = null
+    return () => {
+        if (preset) return preset
+        const url = new URL(window.location.href)
+        const sources = deserializeSources(url.searchParams.get('sources'))
+        const parsed = parseView(url.searchParams)
+        const view = Object.keys(parsed).length > 0 ? { ...DEFAULT_FILTERS, ...parsed } : null
+        if (VIEW_PARAMS.some((p) => url.searchParams.has(p))) {
+            for (const p of VIEW_PARAMS) url.searchParams.delete(p)
+            window.history.replaceState(null, '', url.toString())
+        }
+        preset = { sources, view }
+        return preset
+    }
+})()
+
 function initialSources(): Source[] {
-    const stored = load<Source[]>('sources', [])
-    const url = new URL(window.location.href)
-    const fromUrl = deserializeSources(url.searchParams.get('sources'))
-    if (fromUrl.length === 0) return stored
-    url.searchParams.delete('sources')
-    window.history.replaceState(null, '', url.toString())
-    return fromUrl.reduce(addSource, stored)
+    return urlPreset().sources.reduce(addSource, load<Source[]>('sources', []))
 }
 
 export function App() {
     const [sources, setSources] = useState<Source[]>(initialSources)
     useEffect(() => save('sources', sources), [sources])
-    const [filters, setFilters] = usePersistedState<Filters>('filters', DEFAULT_FILTERS)
+    const [filters, setFilters] = usePersistedState<Filters>(
+        'filters',
+        DEFAULT_FILTERS,
+        urlPreset().view ?? undefined
+    )
+    const [views, setViews] = usePersistedState<SavedView[]>('views', [])
     const [settings, setSettings] = usePersistedState<Settings>('settings', DEFAULT_SETTINGS)
     const [token, setToken] = useState<string | null>(() => load<string | null>(TOKEN_KEY, null))
     const [dialog, setDialog] = useState<'login' | 'settings' | null>(null)
@@ -258,7 +280,8 @@ export function App() {
             TOKEN_KEY,
             'cache',
             'mutedRepos',
-            'lastVisit'
+            'lastVisit',
+            'views'
         ])
             remove(key)
         window.location.reload()
@@ -296,7 +319,24 @@ export function App() {
                             onFocus={focusSource}
                             muted={muted}
                             onUnmute={(r) => setMutedRepos((list) => toggleMuted(list, r))}
+                            filters={filters}
                         />
+                        {!empty && (
+                            <ViewsPanel
+                                views={views}
+                                filters={filters}
+                                onChange={setViews}
+                                onApply={(f) =>
+                                    setFilters(
+                                        pruneFilters(
+                                            { ...DEFAULT_FILTERS, ...f },
+                                            radar.items,
+                                            radar.effective
+                                        )
+                                    )
+                                }
+                            />
+                        )}
                         {!radar.viewer && !radar.viewerLoading && (
                             <div className='bg-surface border-line rounded-xl border p-4 text-sm'>
                                 <p className='font-semibold'>

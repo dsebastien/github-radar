@@ -23,7 +23,8 @@ Static, private, and generic: it runs entirely in your browser, talks only to `a
 - **Projects** (logged in, with the Projects permission): each card shows its projects and status. Filter by project or "not in any project"; from the item panel or in bulk, add items to a project of any source owner or your own, and set the project's Status field. The project UI hides itself when the token cannot read projects.
 - **Bulk actions** (logged in): a checkbox on every card (shift-click for a range) or "Select all N shown", then add/remove labels, assign/unassign yourself, or close/reopen from a sticky bar. Actions run item by item with a progress counter and a cancel button; failures are listed per item. Options that only fit part of the selection say how many items they apply to.
 - **Persistence**: sources, filters, settings, token and the last result set live in `localStorage`, so the dashboard paints instantly on the next visit and refreshes in the background (interval configurable).
-- **Shareable presets**: `?sources=user:dsebastien,org:knowii-oss,DeveloPassion/obsidian-starter-kit-plugin` pre-fills the sources on first load. Use the "Share this view" button.
+- **Shareable views**: "Share this view" copies a link carrying the sources and the whole view (filters, sort, grouping), e.g. `?sources=org:knowii-oss&type=pr&review=needs-my-review&group=repo`, so a bookmark restores a triage view. Opening it merges the sources into yours and applies the view.
+- **Saved views**: name the current filters, sort and grouping in the Views panel ("PRs needing review", "dormant issues") and switch between them in one click. Saved in this browser.
 
 ## Logging in
 
