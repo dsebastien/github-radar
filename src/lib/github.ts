@@ -1,4 +1,5 @@
 import type { RawPrNode } from './enrichment'
+import { toProject, type RawProject, type RawProjectsNode } from './projects'
 import { buildQuery, chunkSources } from './query'
 import type {
     Actor,
@@ -7,6 +8,7 @@ import type {
     ItemDetail,
     Label,
     Milestone,
+    Project,
     RateLimit,
     RepoLabel,
     Source,
@@ -35,6 +37,34 @@ const PR_DETAILS_QUERY = `query($ids: [ID!]!) {
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
     }
+  }
+}`
+
+const PROJECT_ITEMS = `projectItems(first: 20) {
+      nodes {
+        id
+        project { id title }
+        fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+      }
+    }`
+
+const PROJECT_MEMBERSHIPS_QUERY = `query($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Issue { id ${PROJECT_ITEMS} }
+    ... on PullRequest { id ${PROJECT_ITEMS} }
+  }
+}`
+
+const PROJECT_FIELDS = `nodes {
+        id title number url closed
+        owner { ... on User { login } ... on Organization { login } }
+        field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
+      }`
+
+const OWNER_PROJECTS_QUERY = `query($login: String!) {
+  repositoryOwner(login: $login) {
+    ... on User { projectsV2(first: 50, orderBy: { field: UPDATED_AT, direction: DESC }) { ${PROJECT_FIELDS} } }
+    ... on Organization { projectsV2(first: 50, orderBy: { field: UPDATED_AT, direction: DESC }) { ${PROJECT_FIELDS} } }
   }
 }`
 
@@ -479,15 +509,17 @@ export class GitHubClient {
     async graphql<T>(
         query: string,
         variables: Record<string, unknown>,
-        signal?: AbortSignal
+        opts: { signal?: AbortSignal; strict?: boolean; errors?: string[] } = {}
     ): Promise<T> {
         const { data } = await this.request<{ data?: T; errors?: Array<{ message: string }> }>(
             '/graphql',
-            { method: 'POST', body: { query, variables }, signal }
+            { method: 'POST', body: { query, variables }, signal: opts.signal }
         )
-        if (!data.data) {
-            const message = (data.errors ?? []).map((e) => e.message).join(' ') || 'GraphQL error'
-            throw new GitHubError(message, 200)
+        const errors = (data.errors ?? []).map((e) => e.message)
+        opts.errors?.push(...errors)
+        // Mutations are strict: any error means the write did not happen.
+        if (!data.data || (opts.strict && errors.length > 0)) {
+            throw new GitHubError(errors.join(' ') || 'GraphQL error', 200)
         }
         return data.data
     }
@@ -497,9 +529,68 @@ export class GitHubClient {
         const data = await this.graphql<{ nodes: Array<RawPrNode | Record<string, never> | null> }>(
             PR_DETAILS_QUERY,
             { ids: nodeIds },
-            signal
+            { signal }
         )
         return data.nodes.filter((n): n is RawPrNode => n !== null && 'id' in n)
+    }
+
+    /**
+     * Project (v2) memberships and Status of up to 100 issues or pull requests. Throws a 403
+     * GitHubError when the token cannot read projects (the Projects permission is missing).
+     */
+    async projectMemberships(nodeIds: string[], signal?: AbortSignal): Promise<RawProjectsNode[]> {
+        const errors: string[] = []
+        const data = await this.graphql<{ nodes: Array<Partial<RawProjectsNode> | null> }>(
+            PROJECT_MEMBERSHIPS_QUERY,
+            { ids: nodeIds },
+            { signal, errors }
+        )
+        const nodes = data.nodes.filter(
+            (n): n is RawProjectsNode => n !== null && typeof n.id === 'string'
+        )
+        if (errors.length > 0 && nodes.every((n) => n.projectItems === null)) {
+            throw new GitHubError(`Projects are not readable with this token: ${errors[0]}`, 403)
+        }
+        return nodes
+    }
+
+    /** Open projects of a user or organization, most recently updated first. */
+    async ownerProjects(login: string): Promise<Project[]> {
+        const data = await this.graphql<{
+            repositoryOwner: { projectsV2?: { nodes: Array<RawProject | null> } } | null
+        }>(OWNER_PROJECTS_QUERY, { login })
+        return (data.repositoryOwner?.projectsV2?.nodes ?? [])
+            .filter((p): p is RawProject => p !== null && !p.closed)
+            .map(toProject)
+    }
+
+    /** Add an issue or PR to a project. Returns the project item id. */
+    async addToProject(projectId: string, item: Item): Promise<string> {
+        const data = await this.graphql<{ addProjectV2ItemById: { item: { id: string } } }>(
+            `mutation($p: ID!, $c: ID!) {
+  addProjectV2ItemById(input: { projectId: $p, contentId: $c }) { item { id } }
+}`,
+            { p: projectId, c: item.node_id },
+            { strict: true }
+        )
+        return data.addProjectV2ItemById.item.id
+    }
+
+    async setProjectStatus(
+        projectId: string,
+        itemId: string,
+        fieldId: string,
+        optionId: string
+    ): Promise<void> {
+        await this.graphql<unknown>(
+            `mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) {
+  updateProjectV2ItemFieldValue(
+    input: { projectId: $p, itemId: $i, fieldId: $f, value: { singleSelectOptionId: $o } }
+  ) { projectV2Item { id } }
+}`,
+            { p: projectId, i: itemId, f: fieldId, o: optionId },
+            { strict: true }
+        )
     }
 
     /** Rendered body, comments and whether the viewer already gave a 👍. */

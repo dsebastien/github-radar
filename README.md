@@ -18,6 +18,7 @@ Static, private, and generic: it runs entirely in your browser, talks only to `a
 - **Sort and group**: by recent activity, creation date, discussion, or title; group by repository or author.
 - **Actions when logged in**: 👍 upvote, comment (Markdown), add/remove labels, assign/unassign yourself, close/reopen (with confirmation).
 - **Milestones** (logged in): set or clear an item's milestone from its panel. In bulk, pick a title shared by the selected items' repositories (each option says how many items it applies to) and optionally create it in the repositories that lack it.
+- **Projects** (logged in, with the Projects permission): each card shows its projects and status. Filter by project or "not in any project"; from the item panel or in bulk, add items to a project of any source owner or your own, and set the project's Status field. The project UI hides itself when the token cannot read projects.
 - **Bulk actions** (logged in): a checkbox on every card (shift-click for a range) or "Select all N shown", then add/remove labels, assign/unassign yourself, or close/reopen from a sticky bar. Actions run item by item with a progress counter and a cancel button; failures are listed per item. Options that only fit part of the selection say how many items they apply to.
 - **Persistence**: sources, filters, settings, token and the last result set live in `localStorage`, so the dashboard paints instantly on the next visit and refreshes in the background (interval configurable).
 - **Shareable presets**: `?sources=user:dsebastien,org:knowii-oss,DeveloPassion/obsidian-starter-kit-plugin` pre-fills the sources on first load. Use the "Share this view" button.
@@ -35,6 +36,7 @@ Create one at https://github.com/settings/personal-access-tokens/new with:
 | Issues: read and write                | List issues; comment, label, assign, close (read-only is fine to just view) |
 | Pull requests: read and write         | Same, for PRs                                                               |
 | Organization › Members: read          | Discover your organizations automatically                                   |
+| Account and Organization › Projects   | Read and write: project memberships, status, add to project (optional)      |
 
 ## Running locally
 

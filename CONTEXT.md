@@ -9,6 +9,7 @@ The vocabulary used in code, tests and docs. Use these terms exactly.
 - **Filters**: the user's view over the fetched items (text, type, state, labels, repos, authors, assignees, mine, attention, sort, group). Filters are applied client-side, except **state**, which is part of the search query because closed items are not fetched by default.
 - **Facets**: the distinct filter values present in the fetched items, with counts. Derived, never stored.
 - **Attention flags**: signals that an item may need a human: **stale** (no activity for 30+ days), **dormant** (90+ days), **unlabeled**, **unassigned**, **draft**. Derived from the item and the current time.
+- **Project link**: an item's membership in a GitHub Project (v2): the project, the project item id, and the item's **Status** (the project's single-select field of that name). Enriched like PR details, refetched when the item changes or after 6 hours, because project changes do not bump `updated_at`.
 - **Mine**: a filter shortcut relative to the viewer: **assigned** (viewer is an assignee), **authored** (viewer opened it), **involved** (either).
 - **Action**: a write the viewer performs on an item from the dashboard: upvote (a 👍 reaction), comment, set labels, assign or unassign self, close or reopen. Actions require a viewer and a token with write permission.
 - **Selection**: the items checked for a **bulk action**, which runs the same action item by item (never atomically) and reports per-item failures.

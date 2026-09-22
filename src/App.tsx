@@ -477,6 +477,9 @@ export function App() {
                             onPatch={radar.patchItem}
                             onToast={toast}
                             onClear={() => setChecked(new Set())}
+                            loadProjects={
+                                radar.projectsAvailable === false ? undefined : radar.loadProjects
+                            }
                         />
                     )}
                     {shown.length > visible.length && (
@@ -535,6 +538,9 @@ export function App() {
                         onPatch={(patch) => radar.patchItem(selected.id, patch)}
                         onToast={toast}
                         onLogin={() => setDialog('login')}
+                        loadProjects={
+                            radar.projectsAvailable === false ? undefined : radar.loadProjects
+                        }
                     />
                 </>
             )}

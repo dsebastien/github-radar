@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitHubClient, GitHubError, type SearchProgress } from '@/lib/github'
 import { applyEnrichment, carryEnrichment, ENRICH_BATCH, needsEnrichment } from '@/lib/enrichment'
 import { itemSources } from '@/lib/filtering'
+import { applyProjects, carryProjects, needsProjects, projectOwners } from '@/lib/projects'
 import { effectiveSources, sourceKey } from '@/lib/sources'
 import { load, remove, save } from '@/lib/storage'
-import type { Item, RateLimit, Settings, Source, StateFilter, Viewer } from '@/lib/types'
+import type { Item, Project, RateLimit, Settings, Source, StateFilter, Viewer } from '@/lib/types'
 
 interface SourceStamp {
     /** When the last (incremental or full) fetch of this source started. */
@@ -25,6 +26,10 @@ interface Cache {
     /** Sources GitHub refused to search at the last fetch (missing, or not visible). */
     invalid?: Source[]
 }
+
+/** A fresh search result keeps the cached enrichments until they are refetched. */
+const carry = (prev: Item | undefined, next: Item) =>
+    carryProjects(prev, carryEnrichment(prev, next))
 
 /** Incremental fetches overlap the previous window slightly to survive clock skew. */
 const OVERLAP_MS = 5 * 60_000
@@ -51,6 +56,11 @@ export interface RadarState {
     /** Incremental by default; `full` refetches every visible source from scratch. */
     refresh: (mode?: 'auto' | 'full') => void
     patchItem: (id: number, patch: Partial<Item>) => void
+    /** null until known; false when the token cannot read projects (no Projects permission). */
+    projectsAvailable: boolean | null
+    /** Projects of the source owners and the viewer, loaded on demand (logged in only). */
+    projects: Project[] | null
+    loadProjects: () => Promise<Project[]>
 }
 
 const CACHE_KEY = 'cache'
@@ -130,6 +140,27 @@ export function useRadar(
     const [progress, setProgress] = useState<SearchProgress | null>(null)
     const [error, setError] = useState<string | null>(null)
     const abortRef = useRef<AbortController | null>(null)
+    // Keyed by token like the viewer: a new token starts unknown again.
+    const [projectsFor, setProjectsFor] = useState<{
+        token: string | null
+        available: boolean | null
+        list: Project[] | null
+    }>({ token, available: null, list: null })
+    const projectsState =
+        projectsFor.token === token ? projectsFor : { token, available: null, list: null }
+    const setProjectsAvailable = useCallback(
+        (available: boolean) =>
+            setProjectsFor((p) => ({
+                ...(p.token === token ? p : { list: null }),
+                token,
+                available
+            })),
+        [token]
+    )
+    const projectsRef = useRef<boolean | null>(null)
+    useEffect(() => {
+        projectsRef.current = projectsState.available
+    }, [projectsState.available])
     const cacheRef = useRef<Cache | null>(null)
     useEffect(() => {
         cacheRef.current = cache
@@ -194,7 +225,7 @@ export function useRadar(
                         if (itemSources(item, full).length > 0) byId.delete(id)
                     }
                     for (const item of result.items)
-                        byId.set(item.id, carryEnrichment(previous.get(item.id), item))
+                        byId.set(item.id, carry(previous.get(item.id), item))
                     truncated = result.truncated
                     invalid.push(...result.invalid)
                     for (const s of full)
@@ -212,7 +243,7 @@ export function useRadar(
                     invalid.push(...result.invalid)
                     for (const item of result.items) {
                         if (state === 'all' || item.state === state)
-                            byId.set(item.id, carryEnrichment(previous.get(item.id), item))
+                            byId.set(item.id, carry(previous.get(item.id), item))
                         else byId.delete(item.id)
                     }
                     for (const s of partial) {
@@ -234,8 +265,8 @@ export function useRadar(
                 setCache(next)
                 save(CACHE_KEY, next)
 
-                // Review and CI state of pull requests: GraphQL, so logged in only. Failures
-                // leave the items as they are; the next refresh tries again.
+                // Review and CI state of pull requests, then project memberships: GraphQL, so
+                // logged in only. Failures leave the items as they are; the next refresh retries.
                 if (client.authenticated) {
                     let items = next.items
                     const targets = needsEnrichment(items)
@@ -255,6 +286,33 @@ export function useRadar(
                             break
                         }
                     }
+                    if (projectsRef.current !== false) {
+                        const stale = needsProjects(items, Date.now())
+                        for (let i = 0; i < stale.length; i += ENRICH_BATCH) {
+                            const ids = stale.slice(i, i + ENRICH_BATCH).map((t) => t.node_id)
+                            try {
+                                const nodes = await client.projectMemberships(
+                                    ids,
+                                    controller.signal
+                                )
+                                if (controller.signal.aborted) return
+                                items = applyProjects(items, nodes, Date.now())
+                                setProjectsAvailable(true)
+                            } catch (e) {
+                                if (controller.signal.aborted) return
+                                if (e instanceof GitHubError && e.status === 403) {
+                                    setProjectsAvailable(false)
+                                } else {
+                                    setError(
+                                        `Project memberships could not be loaded: ${
+                                            e instanceof Error ? e.message : String(e)
+                                        }`
+                                    )
+                                }
+                                break
+                            }
+                        }
+                    }
                     if (items !== next.items) {
                         const enriched = { ...next, items }
                         setCache(enriched)
@@ -272,7 +330,7 @@ export function useRadar(
                 }
             }
         },
-        [client, visible, state, onAuthError]
+        [client, visible, state, onAuthError, setProjectsAvailable]
     )
 
     // Fetch when the visible scope changes: an in-flight fetch is aborted and restarted for the
@@ -298,6 +356,20 @@ export function useRadar(
         const id = window.setInterval(() => void run('auto'), settings.refreshMinutes * 60_000)
         return () => window.clearInterval(id)
     }, [run, settings.refreshMinutes])
+
+    const loadProjects = useCallback(async () => {
+        if (projectsState.list) return projectsState.list
+        if (!viewer) return []
+        const lists = await Promise.all(
+            projectOwners(effective, viewer.login).map((o) =>
+                client.ownerProjects(o).catch(() => [])
+            )
+        )
+        const seen = new Set<string>()
+        const list = lists.flat().filter((p) => !seen.has(p.id) && seen.add(p.id))
+        setProjectsFor((p) => ({ ...p, token, list }))
+        return list
+    }, [client, effective, viewer, token, projectsState.list])
 
     const patchItem = useCallback((id: number, patch: Partial<Item>) => {
         setCache((c) => {
@@ -343,7 +415,10 @@ export function useRadar(
         rateLimit,
         effective,
         refresh: (mode = 'auto') => void run(mode),
-        patchItem
+        patchItem,
+        projectsAvailable: projectsState.available,
+        projects: projectsState.list,
+        loadProjects
     }
 }
 

@@ -2,9 +2,10 @@ import clsx from 'clsx'
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import type { GitHubClient } from '@/lib/github'
-import type { Item, ItemDetail, Milestone, RepoLabel, Viewer } from '@/lib/types'
+import type { Item, ItemDetail, Milestone, Project, RepoLabel, Viewer } from '@/lib/types'
 import { formatDate, timeAgo } from '@/lib/utils'
 import { PrBadges } from './PrBadges'
+import { ProjectsSection } from './ProjectsSection'
 import { RepoMenu } from './RepoMenu'
 import { Avatar, Button, ExternalIcon, IssueIcon, LabelChip, PullRequestIcon, Spinner } from './ui'
 
@@ -23,6 +24,8 @@ interface Props {
     onPatch: (patch: Partial<Item>) => void
     onToast: (msg: string) => void
     onLogin: () => void
+    /** Present when the token can use projects. */
+    loadProjects?: () => Promise<Project[]>
 }
 
 export function ItemDrawer({
@@ -33,7 +36,8 @@ export function ItemDrawer({
     onClose,
     onPatch,
     onToast,
-    onLogin
+    onLogin,
+    loadProjects
 }: Props) {
     const [detail, setDetail] = useState<ItemDetail | null>(null)
     const [error, setError] = useState<string | null>(null)
@@ -350,6 +354,16 @@ export function ItemDrawer({
                         />
                     ))}
                 </div>
+            )}
+
+            {viewer && loadProjects && (
+                <ProjectsSection
+                    item={item}
+                    client={client}
+                    loadProjects={loadProjects}
+                    onPatch={onPatch}
+                    onToast={onToast}
+                />
             )}
 
             {milestonesOpen && repoMilestones && (

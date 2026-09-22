@@ -37,6 +37,26 @@ export interface PrDetails {
     for: string
 }
 
+/** An item's membership in a GitHub Project (v2), with its Status field value. */
+export interface ProjectLink {
+    projectId: string
+    /** The project item id (not the issue's), needed to set fields. */
+    itemId: string
+    title: string
+    status: string | null
+}
+
+/** A GitHub Project (v2) the viewer can add items to, with its Status field options. */
+export interface Project {
+    id: string
+    title: string
+    number: number
+    owner: string
+    url: string
+    /** The single-select "Status" field, when the project has one. */
+    status: { fieldId: string; options: Array<{ id: string; name: string }> } | null
+}
+
 /** An issue or a pull request, normalized from the GitHub Search API. */
 export interface Item {
     id: number
@@ -59,6 +79,11 @@ export interface Item {
     milestone: string | null
     /** Pull requests only, once enriched. */
     pr?: PrDetails
+    /** Project memberships, once enriched (logged in with the Projects permission). */
+    projects?: ProjectLink[]
+    /** When `projects` was fetched (epoch ms) and for which `updated_at`. */
+    projectsAt?: number
+    projectsFor?: string
 }
 
 export interface Viewer {
@@ -94,6 +119,8 @@ export interface Filters {
     assignees: string[]
     /** Milestone titles (matched across repositories), or NO_MILESTONE. */
     milestones: string[]
+    /** Project ids, or NO_PROJECT. */
+    projects: string[]
     mine: MineFilter
     attention: AttentionFilter
     hideDrafts: boolean
@@ -114,6 +141,7 @@ export const DEFAULT_FILTERS: Filters = {
     authors: [],
     assignees: [],
     milestones: [],
+    projects: [],
     mine: 'any',
     attention: 'any',
     hideDrafts: false,
@@ -125,6 +153,8 @@ export const DEFAULT_FILTERS: Filters = {
 
 /** Milestone filter value for items without a milestone. */
 export const NO_MILESTONE = '(none)'
+/** Project filter value for items in no project. */
+export const NO_PROJECT = '(none)'
 
 export interface Settings {
     /** When logged in, also search the viewer's own account and every org they belong to. */

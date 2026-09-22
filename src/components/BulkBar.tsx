@@ -8,7 +8,7 @@ import {
     type BulkFailure
 } from '@/lib/bulk'
 import type { GitHubClient } from '@/lib/github'
-import type { Item, Milestone, RepoLabel, Viewer } from '@/lib/types'
+import type { Item, Milestone, Project, RepoLabel, Viewer } from '@/lib/types'
 import { pluralize } from '@/lib/utils'
 import { Button, LabelChip, Spinner } from './ui'
 
@@ -19,15 +19,17 @@ interface Props {
     onPatch: (id: number, patch: Partial<Item>) => void
     onToast: (msg: string) => void
     onClear: () => void
+    /** Present when the token can use projects. */
+    loadProjects?: () => Promise<Project[]>
 }
 
-type Panel = 'labels' | 'milestone' | 'close' | null
+type Panel = 'labels' | 'milestone' | 'project' | 'close' | null
 
 /**
  * Sticky bar for acting on the selected items. Every action runs item by item with a progress
  * counter; failures are listed per item and never stop the rest.
  */
-export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Props) {
+export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, loadProjects }: Props) {
     const [panel, setPanel] = useState<Panel>(null)
     const [running, setRunning] = useState<{ label: string; done: number; total: number } | null>(
         null
@@ -38,6 +40,11 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Pr
     const [repoMilestones, setRepoMilestones] = useState<Record<string, Milestone[]>>({})
     const [loadingMilestones, setLoadingMilestones] = useState(false)
     const [createMissing, setCreateMissing] = useState(false)
+    const [projects, setProjects] = useState<Project[] | null>(null)
+    const [projectId, setProjectId] = useState<string>('')
+    const [loadingProjects, setLoadingProjects] = useState(false)
+    const project = projects?.find((p) => p.id === projectId) ?? null
+    const inProject = (i: Item) => (i.projects ?? []).find((l) => l.projectId === projectId)
     const abortRef = useRef<AbortController | null>(null)
 
     const me = viewer.login.toLowerCase()
@@ -132,6 +139,56 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Pr
         )
     }
 
+    const openProjects = async () => {
+        if (panel === 'project') return setPanel(null)
+        setPanel('project')
+        if (projects || !loadProjects) return
+        setLoadingProjects(true)
+        try {
+            setProjects(await loadProjects())
+        } catch (e) {
+            onToast(e instanceof Error ? e.message : String(e))
+        } finally {
+            setLoadingProjects(false)
+        }
+    }
+
+    const addToProject = (p: Project) =>
+        run(
+            `Add to ${p.title}`,
+            items.filter((i) => !inProject(i)),
+            async (i) => ({
+                projects: [
+                    ...(i.projects ?? []),
+                    {
+                        projectId: p.id,
+                        itemId: await client.addToProject(p.id, i),
+                        title: p.title,
+                        status: null
+                    }
+                ]
+            })
+        )
+
+    const setStatus = (p: Project, optionId: string) => {
+        const field = p.status
+        const option = field?.options.find((o) => o.id === optionId)
+        if (!field || !option) return
+        void run(
+            `Status “${option.name}”`,
+            items.filter((i) => inProject(i) && inProject(i)!.status !== option.name),
+            async (i) => {
+                const link = inProject(i)!
+                await client.setProjectStatus(p.id, link.itemId, field.fieldId, option.id)
+                return {
+                    projects: (i.projects ?? []).map((l) =>
+                        l.itemId === link.itemId ? { ...l, status: option.name } : l
+                    )
+                }
+            }
+        )
+    }
+
     const hasLabel = (i: Item, name: string) =>
         i.labels.some((l) => l.name.toLowerCase() === name.toLowerCase())
     const repoHas = (i: Item, name: string) =>
@@ -184,6 +241,16 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Pr
                 >
                     ◆ Milestone
                 </Button>
+                {loadProjects && (
+                    <Button
+                        size='sm'
+                        onClick={() => void openProjects()}
+                        disabled={busy}
+                        aria-expanded={panel === 'project'}
+                    >
+                        ▦ Project
+                    </Button>
+                )}
                 <Button
                     size='sm'
                     disabled={busy || assignable.none}
@@ -317,6 +384,79 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear }: Pr
                                     Clear milestone
                                 </Button>
                             </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {panel === 'project' && (
+                <div className='border-line mt-3 flex flex-wrap items-center gap-2 border-t pt-3 text-xs'>
+                    {loadingProjects || !projects ? (
+                        <span className='text-muted flex items-center gap-2'>
+                            <Spinner /> Loading projects…
+                        </span>
+                    ) : projects.length === 0 ? (
+                        <span className='text-faint'>No open projects found for these owners.</span>
+                    ) : (
+                        <>
+                            <select
+                                value={projectId}
+                                onChange={(e) => setProjectId(e.target.value)}
+                                aria-label='Project'
+                                className='bg-well border-line rounded-lg border px-2 py-1.5'
+                            >
+                                <option value='' disabled>
+                                    Choose a project…
+                                </option>
+                                {projects.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.title} ({p.owner})
+                                    </option>
+                                ))}
+                            </select>
+                            {project && (
+                                <>
+                                    <Button
+                                        size='sm'
+                                        disabled={items.every((i) => inProject(i))}
+                                        onClick={() => void addToProject(project)}
+                                    >
+                                        Add{' '}
+                                        {pluralize(
+                                            items.filter((i) => !inProject(i)).length,
+                                            'item'
+                                        )}
+                                    </Button>
+                                    {project.status ? (
+                                        <select
+                                            value=''
+                                            onChange={(e) => setStatus(project, e.target.value)}
+                                            disabled={!items.some((i) => inProject(i))}
+                                            aria-label='Set status'
+                                            title={
+                                                applicability(items, (i) => !!inProject(i)).hint ||
+                                                'Set the status of the selected items'
+                                            }
+                                            className='bg-well border-line rounded-lg border px-2 py-1.5 disabled:opacity-50'
+                                        >
+                                            <option value='' disabled>
+                                                Set status (
+                                                {items.filter((i) => inProject(i)).length} in the
+                                                project)…
+                                            </option>
+                                            {project.status.options.map((o) => (
+                                                <option key={o.id} value={o.id}>
+                                                    {o.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <span className='text-faint'>
+                                            This project has no Status field.
+                                        </span>
+                                    )}
+                                </>
+                            )}
                         </>
                     )}
                 </div>

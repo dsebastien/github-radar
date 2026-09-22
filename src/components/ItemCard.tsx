@@ -122,6 +122,18 @@ export function ItemCard({
                             {item.title}
                         </a>
                     </h3>
+                    {item.projects && item.projects.length > 0 && (
+                        <div className='text-muted mt-1 flex flex-wrap gap-x-3 text-[11px]'>
+                            {item.projects.map((p) => (
+                                <span key={p.itemId} title={`Project: ${p.title}`}>
+                                    ▦ {p.title}
+                                    {p.status && (
+                                        <span className='text-secondary-text'> · {p.status}</span>
+                                    )}
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     {item.labels.length > 0 && (
                         <div
                             className='mt-1.5 flex flex-wrap gap-1'

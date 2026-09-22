@@ -1,7 +1,9 @@
 import { matchesReview } from './enrichment'
+import { matchesProjects } from './projects'
 import { sourceKey } from './sources'
 import {
     NO_MILESTONE,
+    NO_PROJECT,
     type AttentionFilter,
     type Filters,
     type GroupKey,
@@ -91,6 +93,15 @@ export function pruneFilters(f: Filters, items: Item[], sources: Source[]): Filt
     const authors = new Set(visible.flatMap((i) => (i.author ? [lower(i.author.login)] : [])))
     const assignees = new Set(visible.flatMap((i) => i.assignees.map((a) => lower(a.login))))
     const milestones = new Set(visible.map((i) => lower(i.milestone ?? NO_MILESTONE)))
+    const projects = new Set(
+        visible.flatMap((i) =>
+            i.projects
+                ? i.projects.length
+                    ? i.projects.map((p) => lower(p.projectId))
+                    : [lower(NO_PROJECT)]
+                : []
+        )
+    )
     const keep = (list: string[], set: Set<string>) => list.filter((v) => set.has(lower(v)))
     const next = {
         ...f,
@@ -98,14 +109,16 @@ export function pruneFilters(f: Filters, items: Item[], sources: Source[]): Filt
         labels: keep(f.labels, labels),
         authors: keep(f.authors, authors),
         assignees: keep(f.assignees, assignees),
-        milestones: keep(f.milestones, milestones)
+        milestones: keep(f.milestones, milestones),
+        projects: keep(f.projects, projects)
     }
     const unchanged =
         next.repos.length === f.repos.length &&
         next.labels.length === f.labels.length &&
         next.authors.length === f.authors.length &&
         next.assignees.length === f.assignees.length &&
-        next.milestones.length === f.milestones.length
+        next.milestones.length === f.milestones.length &&
+        next.projects.length === f.projects.length
     return unchanged ? f : next
 }
 
@@ -153,6 +166,7 @@ export function applyFilters(items: Item[], f: Filters, ctx: FilterContext): Ite
             return false
         if (f.milestones.length > 0 && !hasAny([item.milestone ?? NO_MILESTONE], f.milestones))
             return false
+        if (!matchesProjects(item, f.projects)) return false
         if (f.mine !== 'any') {
             const me = ctx.viewerLogin?.toLowerCase()
             if (!me) return false
@@ -214,6 +228,8 @@ export interface Facets {
     assignees: Array<{ login: string; avatar_url: string; count: number }>
     /** By title across repositories; `repos` is how many repositories share the title. */
     milestones: Array<{ title: string; count: number; repos: number }>
+    /** Only items whose memberships are known count; empty when none are. */
+    projects: Array<{ id: string; title: string; count: number }>
 }
 
 /** Distinct filter values with counts, computed from the full (unfiltered) item set. */
@@ -223,7 +239,18 @@ export function computeFacets(items: Item[]): Facets {
     const authors = new Map<string, { login: string; avatar_url: string; count: number }>()
     const assignees = new Map<string, { login: string; avatar_url: string; count: number }>()
     const milestones = new Map<string, { title: string; count: number; repos: Set<string> }>()
+    const projects = new Map<string, { id: string; title: string; count: number }>()
     for (const item of items) {
+        if (item.projects) {
+            const links = item.projects.length
+                ? item.projects.map((p) => ({ id: p.projectId, title: p.title }))
+                : [{ id: NO_PROJECT, title: NO_PROJECT }]
+            for (const l of links) {
+                const e = projects.get(l.id)
+                if (e) e.count++
+                else projects.set(l.id, { ...l, count: 1 })
+            }
+        }
         const title = item.milestone ?? NO_MILESTONE
         const m = milestones.get(title.toLowerCase())
         if (m) {
@@ -258,6 +285,9 @@ export function computeFacets(items: Item[]): Facets {
             .sort((a, b) =>
                 // "No milestone" last, the rest by count.
                 a.title === NO_MILESTONE ? 1 : b.title === NO_MILESTONE ? -1 : byCount(a, b)
-            )
+            ),
+        projects: Array.from(projects.values()).sort((a, b) =>
+            a.id === NO_PROJECT ? 1 : b.id === NO_PROJECT ? -1 : byCount(a, b)
+        )
     }
 }

@@ -46,6 +46,11 @@ export function LoginDialog({
                     <code className='font-mono text-xs'>Members: read</code> on the org so your orgs
                     are discovered automatically.
                 </li>
+                <li>
+                    Optional, for GitHub Projects:{' '}
+                    <code className='font-mono text-xs'>Projects: read and write</code> on your
+                    account and on each organization.
+                </li>
             </ol>
             <form
                 className='mt-4 flex gap-2'

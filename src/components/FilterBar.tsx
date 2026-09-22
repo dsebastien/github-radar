@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Facets } from '@/lib/filtering'
-import { DEFAULT_FILTERS, NO_MILESTONE, type Filters, type Viewer } from '@/lib/types'
+import { DEFAULT_FILTERS, NO_MILESTONE, NO_PROJECT, type Filters, type Viewer } from '@/lib/types'
 import { Avatar, Button, Chip, LabelChip } from './ui'
 
 interface Props {
@@ -22,7 +22,8 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
         filters.repos.length +
         filters.authors.length +
         filters.assignees.length +
-        filters.milestones.length
+        filters.milestones.length +
+        filters.projects.length
     const isDefault = JSON.stringify(filters) === JSON.stringify(DEFAULT_FILTERS)
 
     return (
@@ -142,6 +143,22 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                         </Row>
                     ))}
                 </Dropdown>
+                {facets.projects.length > 0 && (
+                    <Dropdown label='Projects' count={filters.projects.length}>
+                        {facets.projects.map((p) => (
+                            <Row
+                                key={p.id}
+                                active={filters.projects.includes(p.id)}
+                                onClick={() => set({ projects: toggle(filters.projects, p.id) })}
+                                count={p.count}
+                            >
+                                <span className={clsx('truncate', p.id === NO_PROJECT && 'italic')}>
+                                    {p.id === NO_PROJECT ? 'Not in any project' : `▦ ${p.title}`}
+                                </span>
+                            </Row>
+                        ))}
+                    </Dropdown>
+                )}
                 <select
                     value={filters.attention}
                     onChange={(e) => set({ attention: e.target.value as Filters['attention'] })}
@@ -269,6 +286,18 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                             onClick={() => set({ milestones: toggle(filters.milestones, m) })}
                         >
                             {m === NO_MILESTONE ? 'no milestone' : `◆ ${m}`} ×
+                        </Chip>
+                    ))}
+                    {filters.projects.map((id) => (
+                        <Chip
+                            key={`p-${id}`}
+                            active
+                            onClick={() => set({ projects: toggle(filters.projects, id) })}
+                        >
+                            {id === NO_PROJECT
+                                ? 'in no project'
+                                : `▦ ${facets.projects.find((p) => p.id === id)?.title ?? 'project'}`}{' '}
+                            ×
                         </Chip>
                     ))}
                     {filters.assignees.map((a) => (
