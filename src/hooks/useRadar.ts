@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitHubClient, GitHubError, type SearchProgress } from '@/lib/github'
+import { applyEnrichment, carryEnrichment, ENRICH_BATCH, needsEnrichment } from '@/lib/enrichment'
 import { itemSources } from '@/lib/filtering'
 import { effectiveSources, sourceKey } from '@/lib/sources'
 import { load, remove, save } from '@/lib/storage'
@@ -13,6 +14,8 @@ interface SourceStamp {
 }
 
 interface Cache {
+    /** Bumped when the item shape changes, so an older cache is refetched instead of misread. */
+    version?: number
     /** The item state the cache was fetched for; a different state discards it. */
     state: StateFilter
     items: Item[]
@@ -51,10 +54,17 @@ export interface RadarState {
 }
 
 const CACHE_KEY = 'cache'
+/** 2: items carry `node_id` (GraphQL enrichment). */
+const CACHE_VERSION = 2
 
 function loadCache(): Cache | null {
     const c = load<Cache | null>(CACHE_KEY, null)
-    return c && typeof c.stamps === 'object' && Array.isArray(c.items) ? c : null
+    return c &&
+        c.version === CACHE_VERSION &&
+        typeof c.stamps === 'object' &&
+        Array.isArray(c.items)
+        ? c
+        : null
 }
 
 /**
@@ -160,6 +170,7 @@ export function useRadar(
 
             try {
                 const byId = new Map<number, Item>((base?.items ?? []).map((i) => [i.id, i]))
+                const previous = new Map(byId)
                 let truncated = base?.truncated ?? false
                 const fetchedKeys = new Set(visible.map(sourceKey))
                 const invalid = (base?.invalid ?? []).filter((s) => !fetchedKeys.has(sourceKey(s)))
@@ -182,7 +193,8 @@ export function useRadar(
                     for (const [id, item] of byId) {
                         if (itemSources(item, full).length > 0) byId.delete(id)
                     }
-                    for (const item of result.items) byId.set(item.id, item)
+                    for (const item of result.items)
+                        byId.set(item.id, carryEnrichment(previous.get(item.id), item))
                     truncated = result.truncated
                     invalid.push(...result.invalid)
                     for (const s of full)
@@ -199,7 +211,8 @@ export function useRadar(
                     if (controller.signal.aborted) return
                     invalid.push(...result.invalid)
                     for (const item of result.items) {
-                        if (state === 'all' || item.state === state) byId.set(item.id, item)
+                        if (state === 'all' || item.state === state)
+                            byId.set(item.id, carryEnrichment(previous.get(item.id), item))
                         else byId.delete(item.id)
                     }
                     for (const s of partial) {
@@ -211,6 +224,7 @@ export function useRadar(
                     }
                 }
                 const next: Cache = {
+                    version: CACHE_VERSION,
                     state,
                     items: Array.from(byId.values()),
                     stamps,
@@ -219,6 +233,34 @@ export function useRadar(
                 }
                 setCache(next)
                 save(CACHE_KEY, next)
+
+                // Review and CI state of pull requests: GraphQL, so logged in only. Failures
+                // leave the items as they are; the next refresh tries again.
+                if (client.authenticated) {
+                    let items = next.items
+                    const targets = needsEnrichment(items)
+                    for (let i = 0; i < targets.length; i += ENRICH_BATCH) {
+                        const ids = targets.slice(i, i + ENRICH_BATCH).map((t) => t.node_id)
+                        try {
+                            const nodes = await client.pullRequestDetails(ids, controller.signal)
+                            if (controller.signal.aborted) return
+                            items = applyEnrichment(items, nodes)
+                        } catch (e) {
+                            if (controller.signal.aborted) return
+                            setError(
+                                `Pull request details could not be loaded: ${
+                                    e instanceof Error ? e.message : String(e)
+                                }`
+                            )
+                            break
+                        }
+                    }
+                    if (items !== next.items) {
+                        const enriched = { ...next, items }
+                        setCache(enriched)
+                        save(CACHE_KEY, enriched)
+                    }
+                }
             } catch (e: unknown) {
                 if (controller.signal.aborted) return
                 if (e instanceof GitHubError && e.status === 401) onAuthError()

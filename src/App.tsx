@@ -402,6 +402,7 @@ export function App() {
                                         <ItemCard
                                             key={item.id}
                                             item={item}
+                                            viewerLogin={radar.viewer?.login ?? null}
                                             now={now}
                                             selected={item.id === selectedId}
                                             onSelect={() => setSelectedId(item.id)}

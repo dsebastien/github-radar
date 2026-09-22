@@ -2,11 +2,13 @@ import clsx from 'clsx'
 import { attentionFlags } from '@/lib/filtering'
 import type { Item } from '@/lib/types'
 import { pluralize, timeAgo } from '@/lib/utils'
+import { PrBadges } from './PrBadges'
 import { RepoMenu } from './RepoMenu'
 import { Avatar, IssueIcon, LabelChip, PullRequestIcon } from './ui'
 
 interface Props {
     item: Item
+    viewerLogin: string | null
     now: number
     selected: boolean
     onSelect: () => void
@@ -17,6 +19,7 @@ interface Props {
 
 export function ItemCard({
     item,
+    viewerLogin,
     now,
     selected,
     onSelect,
@@ -70,6 +73,7 @@ export function ItemCard({
                                 draft
                             </span>
                         )}
+                        {item.pr && <PrBadges pr={item.pr} viewerLogin={viewerLogin} />}
                         {idle && (
                             <span
                                 className={clsx(

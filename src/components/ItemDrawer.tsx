@@ -4,6 +4,7 @@ import { usePersistedState } from '@/hooks/usePersistedState'
 import type { GitHubClient } from '@/lib/github'
 import type { Item, ItemDetail, RepoLabel, Viewer } from '@/lib/types'
 import { formatDate, timeAgo } from '@/lib/utils'
+import { PrBadges } from './PrBadges'
 import { RepoMenu } from './RepoMenu'
 import { Avatar, Button, ExternalIcon, IssueIcon, LabelChip, PullRequestIcon, Spinner } from './ui'
 
@@ -202,6 +203,11 @@ export function ItemDrawer({
                             #{item.number} · {item.state}
                             {item.draft ? ' · draft' : ''}
                         </span>
+                        {item.pr && (
+                            <span className='ml-1 inline-flex items-center gap-1.5'>
+                                <PrBadges pr={item.pr} viewerLogin={viewer?.login ?? null} />
+                            </span>
+                        )}
                     </div>
                     <h2 className='text-lg leading-snug font-extrabold'>{item.title}</h2>
                     <div className='text-muted mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>

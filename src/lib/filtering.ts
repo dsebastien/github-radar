@@ -1,3 +1,4 @@
+import { matchesReview } from './enrichment'
 import { sourceKey } from './sources'
 import type { AttentionFilter, Filters, GroupKey, Item, SortKey, Source } from './types'
 
@@ -148,6 +149,7 @@ export function applyFilters(items: Item[], f: Filters, ctx: FilterContext): Ite
             if (f.mine === 'assigned' && !assigned) return false
             if (f.mine === 'involved' && !authored && !assigned) return false
         }
+        if (!matchesReview(item, f.review, ctx.viewerLogin)) return false
         if (f.attention !== 'any' && !attentionFlags(item, ctx.now).includes(f.attention))
             return false
         return true

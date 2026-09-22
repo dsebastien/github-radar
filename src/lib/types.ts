@@ -22,9 +22,26 @@ export interface Actor {
 export type ItemType = 'issue' | 'pr'
 export type ItemState = 'open' | 'closed'
 
+export type ReviewState = 'approved' | 'changes_requested' | 'review_required' | 'none'
+export type ChecksState = 'success' | 'failure' | 'pending' | 'none'
+export type MergeableState = 'mergeable' | 'conflicting' | 'unknown'
+
+/** Review and CI state of a pull request, from the GraphQL enrichment (logged in only). */
+export interface PrDetails {
+    review: ReviewState
+    checks: ChecksState
+    mergeable: MergeableState
+    /** Logins of the users whose review is requested (teams are not listed). */
+    reviewRequests: string[]
+    /** The item's `updated_at` when this was fetched: a newer item needs fresh details. */
+    for: string
+}
+
 /** An issue or a pull request, normalized from the GitHub Search API. */
 export interface Item {
     id: number
+    /** GraphQL node id, used to enrich items in batches. */
+    node_id: string
     number: number
     title: string
     html_url: string
@@ -40,6 +57,8 @@ export interface Item {
     created_at: string
     updated_at: string
     milestone: string | null
+    /** Pull requests only, once enriched. */
+    pr?: PrDetails
 }
 
 export interface Viewer {
@@ -55,6 +74,14 @@ export type StateFilter = 'open' | 'closed' | 'all'
 export type SortKey = 'updated' | 'created' | 'comments' | 'title'
 export type GroupKey = 'none' | 'repo' | 'author'
 export type MineFilter = 'any' | 'assigned' | 'authored' | 'involved'
+export type ReviewFilter =
+    | 'any'
+    | 'needs-my-review'
+    | 'review-required'
+    | 'approved'
+    | 'changes-requested'
+    | 'failing'
+    | 'ready'
 export type AttentionFilter = 'any' | 'stale' | 'dormant' | 'unlabeled' | 'unassigned' | 'draft'
 
 export interface Filters {
@@ -68,6 +95,8 @@ export interface Filters {
     mine: MineFilter
     attention: AttentionFilter
     hideDrafts: boolean
+    /** Pull request review and CI state; items that are not enriched PRs never match. */
+    review: ReviewFilter
     /** Source keys (see sourceKey) whose items are hidden. */
     hiddenSources: string[]
     sort: SortKey
@@ -85,6 +114,7 @@ export const DEFAULT_FILTERS: Filters = {
     mine: 'any',
     attention: 'any',
     hideDrafts: false,
+    review: 'any',
     hiddenSources: [],
     sort: 'updated',
     group: 'none'

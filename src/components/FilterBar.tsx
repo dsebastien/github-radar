@@ -136,6 +136,26 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                     <option value='unassigned'>Unassigned</option>
                     <option value='draft'>Draft PRs</option>
                 </select>
+                {viewer && (
+                    <select
+                        value={filters.review}
+                        onChange={(e) => set({ review: e.target.value as Filters['review'] })}
+                        aria-label='Pull request review and CI state'
+                        title='Pull request review and CI state'
+                        className={clsx(
+                            'bg-well border-line rounded-lg border px-2.5 py-1.5 text-xs font-semibold',
+                            filters.review !== 'any' && 'border-secondary-text text-secondary-text'
+                        )}
+                    >
+                        <option value='any'>Reviews: any</option>
+                        <option value='needs-my-review'>Needs my review</option>
+                        <option value='review-required'>Review required</option>
+                        <option value='approved'>Approved</option>
+                        <option value='changes-requested'>Changes requested</option>
+                        <option value='failing'>Failing checks</option>
+                        <option value='ready'>Green and approved</option>
+                    </select>
+                )}
                 <select
                     value={filters.sort}
                     onChange={(e) => set({ sort: e.target.value as Filters['sort'] })}

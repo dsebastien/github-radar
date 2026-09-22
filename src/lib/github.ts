@@ -1,3 +1,4 @@
+import type { RawPrNode } from './enrichment'
 import { buildQuery, chunkSources } from './query'
 import type {
     Actor,
@@ -22,6 +23,19 @@ const DAY = 86_400_000
 const FIRST_DAY = Math.floor(Date.UTC(2008, 0, 1) / DAY)
 /** Owner repository lists change rarely; reuse them for a while. */
 const REPO_LIST_TTL = 6 * 60 * 60_000
+
+const PR_DETAILS_QUERY = `query($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on PullRequest {
+      id
+      isDraft
+      reviewDecision
+      mergeable
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+      reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
+    }
+  }
+}`
 
 function isoDay(day: number): string {
     return new Date(day * DAY).toISOString().slice(0, 10)
@@ -49,6 +63,7 @@ interface RawUser {
 
 interface RawSearchItem {
     id: number
+    node_id: string
     number: number
     title: string
     html_url: string
@@ -110,6 +125,7 @@ function toLabels(raw: RawSearchItem['labels']): Label[] {
 function toItem(raw: RawSearchItem): Item {
     return {
         id: raw.id,
+        node_id: raw.node_id,
         number: raw.number,
         title: raw.title,
         html_url: raw.html_url,
@@ -453,6 +469,36 @@ export class GitHubClient {
         return repos
             .filter((r) => !r.archived && !r.fork && (!openOnly || r.open_issues_count > 0))
             .map((r) => r.full_name)
+    }
+
+    /**
+     * GraphQL (token only). GitHub answers 200 with an `errors` array for partial failures:
+     * those are thrown only when no data came back.
+     */
+    async graphql<T>(
+        query: string,
+        variables: Record<string, unknown>,
+        signal?: AbortSignal
+    ): Promise<T> {
+        const { data } = await this.request<{ data?: T; errors?: Array<{ message: string }> }>(
+            '/graphql',
+            { method: 'POST', body: { query, variables }, signal }
+        )
+        if (!data.data) {
+            const message = (data.errors ?? []).map((e) => e.message).join(' ') || 'GraphQL error'
+            throw new GitHubError(message, 200)
+        }
+        return data.data
+    }
+
+    /** Review decision, mergeability, draft flag and CI rollup of up to 100 pull requests. */
+    async pullRequestDetails(nodeIds: string[], signal?: AbortSignal): Promise<RawPrNode[]> {
+        const data = await this.graphql<{ nodes: Array<RawPrNode | Record<string, never> | null> }>(
+            PR_DETAILS_QUERY,
+            { ids: nodeIds },
+            signal
+        )
+        return data.nodes.filter((n): n is RawPrNode => n !== null && 'id' in n)
     }
 
     /** Rendered body, comments and whether the viewer already gave a 👍. */

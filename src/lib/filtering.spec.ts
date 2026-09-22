@@ -16,6 +16,7 @@ const daysAgo = (d: number) => new Date(NOW - d * 86_400_000).toISOString()
 
 function item(over: Partial<Item> & { id: number }): Item {
     return {
+        node_id: `N${over.id}`,
         number: over.id,
         title: `Item ${over.id}`,
         html_url: `https://github.com/o/r/issues/${over.id}`,
