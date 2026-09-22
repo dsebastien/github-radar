@@ -36,3 +36,12 @@ export function remove(key: string): void {
         /* ignore */
     }
 }
+
+/** Stored size of a key in bytes (UTF-16, as browsers count against the quota); 0 if absent. */
+export function storedSize(key: string): number {
+    try {
+        return (localStorage.getItem(PREFIX + key)?.length ?? 0) * 2
+    } catch {
+        return 0
+    }
+}

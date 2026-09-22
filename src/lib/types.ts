@@ -188,6 +188,8 @@ export const DEFAULT_SETTINGS: Settings = {
 }
 
 export interface RateLimit {
+    /** GitHub's budget this applies to: core, search, graphql… */
+    resource: string
     limit: number
     remaining: number
     resetAt: number

@@ -7,6 +7,7 @@ import {
     runBulk,
     type BulkFailure
 } from '@/lib/bulk'
+import { recordError } from '@/lib/diagnostics'
 import type { GitHubClient } from '@/lib/github'
 import type { Item, Milestone, Project, RepoLabel, Viewer } from '@/lib/types'
 import { pluralize } from '@/lib/utils'
@@ -71,6 +72,8 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, load
         )
         setRunning(null)
         setFailures(failed)
+        for (const f of failed)
+            recordError(`${label} on ${f.item.repo}#${f.item.number}: ${f.message}`, 'bulk')
         const ok = targets.length - failed.length
         onToast(
             `${label}: ${pluralize(ok, 'item')} done${failed.length ? `, ${failed.length} failed` : ''}${controller.signal.aborted ? ' (cancelled)' : ''}.`

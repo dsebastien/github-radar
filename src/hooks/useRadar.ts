@@ -4,7 +4,8 @@ import { applyEnrichment, carryEnrichment, ENRICH_BATCH, needsEnrichment } from 
 import { itemSources } from '@/lib/filtering'
 import { applyProjects, carryProjects, needsProjects, projectOwners } from '@/lib/projects'
 import { effectiveSources, sourceKey } from '@/lib/sources'
-import { load, remove, save } from '@/lib/storage'
+import { recordError } from '@/lib/diagnostics'
+import { load, remove, save, storedSize } from '@/lib/storage'
 import type {
     Involvement,
     Item,
@@ -16,7 +17,7 @@ import type {
     Viewer
 } from '@/lib/types'
 
-interface SourceStamp {
+export interface SourceStamp {
     /** When the last (incremental or full) fetch of this source started. */
     fetchedAt: number
     /** When the last full fetch of this source started. */
@@ -74,6 +75,12 @@ export interface RadarState {
     /** Projects of the source owners and the viewer, loaded on demand (logged in only). */
     projects: Project[] | null
     loadProjects: () => Promise<Project[]>
+    /** Last known budget per GitHub rate-limit resource (core, search, graphql…). */
+    rateLimits: Record<string, RateLimit>
+    /** Size and per-source stamps of the cached item set, for diagnostics. */
+    cacheInfo: () => { bytes: number; items: number; stamps: Record<string, SourceStamp> }
+    /** Drop the cache and refetch every visible source. */
+    resetCache: () => void
 }
 
 const ignoreExpiry = () => {}
@@ -111,10 +118,15 @@ export function useRadar(
     onTokenExpiry: (expiresAt: number) => void = ignoreExpiry
 ): RadarState {
     const [rateLimit, setRateLimit] = useState<RateLimit | null>(null)
+    const [rateLimits, setRateLimits] = useState<Record<string, RateLimit>>({})
+    const onRateLimit = useCallback((r: RateLimit) => {
+        setRateLimit(r)
+        setRateLimits((m) => ({ ...m, [r.resource]: r }))
+    }, [])
     // onTokenExpiry must be stable (a state setter): a new one would recreate the client.
     const client = useMemo(
-        () => new GitHubClient(token, setRateLimit, undefined, onTokenExpiry),
-        [token, onTokenExpiry]
+        () => new GitHubClient(token, onRateLimit, undefined, onTokenExpiry),
+        [token, onRateLimit, onTokenExpiry]
     )
 
     // Keyed by token so that a token change yields `null` immediately without a setState in an effect.
@@ -159,6 +171,11 @@ export function useRadar(
     const [loading, setLoading] = useState(false)
     const [progress, setProgress] = useState<SearchProgress | null>(null)
     const [error, setError] = useState<string | null>(null)
+    /** Show an error and keep it in the diagnostics log. */
+    const fail = useCallback((message: string) => {
+        setError(message)
+        recordError(message, 'refresh')
+    }, [])
     const abortRef = useRef<AbortController | null>(null)
     // Keyed by token like the viewer: a new token starts unknown again.
     const [projectsFor, setProjectsFor] = useState<{
@@ -298,7 +315,7 @@ export function useRadar(
                             items = applyEnrichment(items, nodes)
                         } catch (e) {
                             if (controller.signal.aborted) return
-                            setError(
+                            fail(
                                 `Pull request details could not be loaded: ${
                                     e instanceof Error ? e.message : String(e)
                                 }`
@@ -331,7 +348,7 @@ export function useRadar(
                                 if (e instanceof GitHubError && e.status === 403) {
                                     setProjectsAvailable(false)
                                 } else {
-                                    setError(
+                                    fail(
                                         `Project memberships could not be loaded: ${
                                             e instanceof Error ? e.message : String(e)
                                         }`
@@ -349,7 +366,7 @@ export function useRadar(
                         if (controller.signal.aborted) return
                     } catch (e) {
                         if (controller.signal.aborted) return
-                        setError(
+                        fail(
                             `Mentions, review requests and comments could not be loaded: ${
                                 e instanceof Error ? e.message : String(e)
                             }`
@@ -364,7 +381,7 @@ export function useRadar(
             } catch (e: unknown) {
                 if (controller.signal.aborted) return
                 if (e instanceof GitHubError && e.status === 401) onAuthError()
-                setError(e instanceof Error ? e.message : String(e))
+                fail(e instanceof Error ? e.message : String(e))
             } finally {
                 if (!controller.signal.aborted) {
                     setLoading(false)
@@ -372,7 +389,7 @@ export function useRadar(
                 }
             }
         },
-        [client, visible, state, onAuthError, setProjectsAvailable, viewer]
+        [client, visible, state, onAuthError, setProjectsAvailable, viewer, fail]
     )
 
     // Fetch when the visible scope changes: an in-flight fetch is aborted and restarted for the
@@ -461,7 +478,20 @@ export function useRadar(
         involvement: (token !== null && usable?.involvement) || null,
         projectsAvailable: projectsState.available,
         projects: projectsState.list,
-        loadProjects
+        loadProjects,
+        rateLimits,
+        cacheInfo: () => ({
+            bytes: storedSize(CACHE_KEY),
+            items: cacheRef.current?.items.length ?? 0,
+            stamps: cacheRef.current?.stamps ?? {}
+        }),
+        resetCache: () => {
+            abortRef.current?.abort()
+            cacheRef.current = null
+            setCache(null)
+            remove(CACHE_KEY)
+            window.setTimeout(() => void run('full'), 0)
+        }
     }
 }
 

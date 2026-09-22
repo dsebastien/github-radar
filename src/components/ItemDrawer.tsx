@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import type { GitHubClient } from '@/lib/github'
 import type { Item, ItemDetail, Milestone, Project, RepoLabel, Viewer } from '@/lib/types'
+import { recordError } from '@/lib/diagnostics'
 import { formatDate, timeAgo } from '@/lib/utils'
 import { PrBadges } from './PrBadges'
 import { ProjectsSection } from './ProjectsSection'
@@ -115,7 +116,9 @@ export function ItemDrawer({
         try {
             await fn()
         } catch (e: unknown) {
-            onToast(e instanceof Error ? e.message : String(e))
+            const message = e instanceof Error ? e.message : String(e)
+            recordError(`${item.repo}#${item.number} ${name}: ${message}`, 'action')
+            onToast(message)
         } finally {
             setBusy(null)
         }

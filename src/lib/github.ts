@@ -184,6 +184,7 @@ function readRateLimit(res: Response): RateLimit | null {
     const limit = Number(res.headers.get('x-ratelimit-limit'))
     if (!Number.isFinite(limit) || limit === 0) return null
     return {
+        resource: res.headers.get('x-ratelimit-resource') ?? 'core',
         limit,
         remaining: Number(res.headers.get('x-ratelimit-remaining')),
         resetAt: Number(res.headers.get('x-ratelimit-reset')) * 1000

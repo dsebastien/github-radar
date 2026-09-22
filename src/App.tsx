@@ -395,7 +395,8 @@ export function App() {
             'mutedRepos',
             'lastVisit',
             'views',
-            'tokenExpiresAt'
+            'tokenExpiresAt',
+            'errors'
         ])
             remove(key)
         window.location.reload()
@@ -818,6 +819,11 @@ export function App() {
                         tokenExpiresAt={tokenExpiresAt}
                         onTokenExpiresAt={setTokenExpiresAt}
                         onCheckPermissions={checkPermissions}
+                        diagnostics={{
+                            rateLimits: radar.rateLimits,
+                            cacheInfo: radar.cacheInfo,
+                            onResetCache: radar.resetCache
+                        }}
                         onClose={() => setDialog(null)}
                         onReset={resetAll}
                     />

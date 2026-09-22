@@ -1,6 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { recordError } from './lib/diagnostics'
 import './styles/index.css'
 
 const root = document.getElementById('root')
@@ -18,8 +20,16 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     })
 }
 
+// Errors outside React rendering (event handlers, promises) land in the diagnostics log too.
+window.addEventListener('error', (e) => recordError(e.message, 'unhandled'))
+window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) =>
+    recordError(e.reason instanceof Error ? e.reason.message : String(e.reason), 'unhandled')
+)
+
 createRoot(root).render(
     <StrictMode>
-        <App />
+        <ErrorBoundary>
+            <App />
+        </ErrorBoundary>
     </StrictMode>
 )

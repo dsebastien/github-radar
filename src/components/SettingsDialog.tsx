@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { ComponentProps } from 'react'
 import { useState } from 'react'
 import {
     daysLeft,
@@ -7,6 +8,7 @@ import {
     toDateInput,
     type PermissionCheck
 } from '@/lib/token'
+import { DiagnosticsPanel } from './DiagnosticsPanel'
 import { Modal } from './Modal'
 import { Button, Spinner } from './ui'
 import type { Settings } from '@/lib/types'
@@ -20,6 +22,7 @@ interface Props {
     tokenExpiresAt: number | null
     onTokenExpiresAt: (t: number | null) => void
     onCheckPermissions: () => Promise<PermissionCheck[]>
+    diagnostics: ComponentProps<typeof DiagnosticsPanel>
     onClose: () => void
     onReset: () => void
 }
@@ -32,6 +35,7 @@ export function SettingsDialog({
     tokenExpiresAt,
     onTokenExpiresAt,
     onCheckPermissions,
+    diagnostics,
     onClose,
     onReset
 }: Props) {
@@ -150,6 +154,7 @@ export function SettingsDialog({
                         <option value={60}>Every hour</option>
                     </select>
                 </label>
+                <DiagnosticsPanel {...diagnostics} />
                 <div className='border-line border-t pt-4'>
                     <p className='text-muted mb-2'>
                         Everything (sources, filters, token, cached items) lives in this browser
