@@ -12,6 +12,8 @@ interface Props {
     now: number
     /** Created or updated since the last visit. */
     fresh?: boolean
+    /** The keyboard cursor is on this card. */
+    active?: boolean
     selected: boolean
     onSelect: () => void
     /** Present when bulk selection is available (logged in). */
@@ -27,6 +29,7 @@ export function ItemCard({
     viewerLogin,
     now,
     fresh,
+    active,
     selected,
     onSelect,
     checked,
@@ -42,9 +45,11 @@ export function ItemCard({
             className={clsx(
                 'bg-surface border-line group hover:shadow-card cursor-pointer rounded-xl border p-3.5 transition hover:-translate-y-px',
                 selected && 'ring-secondary-text/60 ring-2',
-                checked && 'border-secondary/70 bg-secondary/10'
+                checked && 'border-secondary/70 bg-secondary/10',
+                active && 'outline-accent-blue outline-2 outline-offset-2'
             )}
             onClick={onSelect}
+            data-item-id={item.id}
         >
             <div className='flex items-start gap-3'>
                 {onCheck && (

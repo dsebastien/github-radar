@@ -31,6 +31,7 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
             <div className='flex flex-wrap items-center gap-2'>
                 <div className='relative min-w-[14rem] flex-1'>
                     <input
+                        id='radar-search'
                         value={filters.text}
                         onChange={(e) => set({ text: e.target.value })}
                         placeholder='Search title, repo, #number, author, label…'

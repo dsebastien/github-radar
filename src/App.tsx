@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BulkBar } from './components/BulkBar'
 import { FilterBar } from './components/FilterBar'
 import { Header } from './components/Header'
@@ -9,6 +9,7 @@ import { ItemDrawer } from './components/ItemDrawer'
 import { RepoActionsContext } from './components/RepoActions'
 import { RepoMenu } from './components/RepoMenu'
 import { LoginDialog } from './components/LoginDialog'
+import { Modal } from './components/Modal'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SourcesPanel } from './components/SourcesPanel'
 import { ViewsPanel } from './components/ViewsPanel'
@@ -19,6 +20,7 @@ import { usePersistedState } from './hooks/usePersistedState'
 import { useLastVisit } from './hooks/useLastVisit'
 import { useRadar } from './hooks/useRadar'
 import { rangeIds } from './lib/bulk'
+import { isTypingTarget, SHORTCUTS, stepId } from './lib/keyboard'
 import { parseView, VIEW_PARAMS, type SavedView } from './lib/view'
 import { mutedCounts, removeNoise, toggleMuted } from './lib/noise'
 import {
@@ -84,7 +86,7 @@ export function App() {
     const [views, setViews] = usePersistedState<SavedView[]>('views', [])
     const [settings, setSettings] = usePersistedState<Settings>('settings', DEFAULT_SETTINGS)
     const [token, setToken] = useState<string | null>(() => load<string | null>(TOKEN_KEY, null))
-    const [dialog, setDialog] = useState<'login' | 'settings' | null>(null)
+    const [dialog, setDialog] = useState<'login' | 'settings' | 'keys' | null>(null)
     const [selectedId, setSelectedId] = useState<number | null>(null)
     const [toasts, setToasts] = useState<Toast[]>([])
     const [now, setNow] = useState(() => Date.now())
@@ -263,6 +265,73 @@ export function App() {
         setAnchor(id)
     }
     const allShownChecked = shown.length > 0 && shown.every((i) => checked.has(i.id))
+    // Keyboard navigation over the cards in display order (collapsed groups skipped).
+    const [activeId, setActiveId] = useState<number | null>(null)
+    const navOrder = useMemo(
+        () => groups.flatMap((g) => (collapsedKeys.has(g.key) ? [] : g.items.map((i) => i.id))),
+        [groups, collapsedKeys]
+    )
+    const keyState = useRef({ navOrder, activeId, selectedId, dialog, shown, viewer: radar.viewer })
+    useEffect(() => {
+        keyState.current = { navOrder, activeId, selectedId, dialog, shown, viewer: radar.viewer }
+    })
+    const toggleCheckedRef = useRef(toggleChecked)
+    useEffect(() => {
+        toggleCheckedRef.current = toggleChecked
+    })
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return
+            const k = keyState.current
+            if (k.dialog) return
+            const move = (delta: number) => {
+                const next = stepId(k.navOrder, k.activeId, delta)
+                if (next === null) return
+                setActiveId(next)
+                // With the panel open, j/k walk through the items in it.
+                if (k.selectedId !== null) setSelectedId(next)
+            }
+            const active = k.shown.find((i) => i.id === k.activeId)
+            switch (e.key) {
+                case 'j':
+                    move(1)
+                    break
+                case 'k':
+                    move(-1)
+                    break
+                case 'Enter':
+                    // A focused button or link handles Enter itself.
+                    if (e.target !== document.body || !active) return
+                    setSelectedId(active.id)
+                    break
+                case 'o':
+                    if (!active) return
+                    window.open(active.html_url, '_blank', 'noopener,noreferrer')
+                    break
+                case 'x':
+                    if (!active || !k.viewer) return
+                    toggleCheckedRef.current(active.id, false)
+                    break
+                case '/':
+                    document.getElementById('radar-search')?.focus()
+                    break
+                case '?':
+                    setDialog('keys')
+                    break
+                default:
+                    return
+            }
+            e.preventDefault()
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [])
+    useEffect(() => {
+        if (activeId === null) return
+        document
+            .querySelector(`[data-item-id="${activeId}"]`)
+            ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }, [activeId])
     const selected =
         selectedId === null ? null : (radar.items.find((i) => i.id === selectedId) ?? null)
 
@@ -555,8 +624,12 @@ export function App() {
                                                 viewerLogin={radar.viewer?.login ?? null}
                                                 now={now}
                                                 fresh={isNew(item, lastVisit)}
+                                                active={item.id === activeId}
                                                 selected={item.id === selectedId}
-                                                onSelect={() => setSelectedId(item.id)}
+                                                onSelect={() => {
+                                                    setSelectedId(item.id)
+                                                    setActiveId(item.id)
+                                                }}
                                                 checked={checked.has(item.id)}
                                                 onCheck={
                                                     radar.viewer
@@ -631,7 +704,8 @@ export function App() {
                         >
                             Sébastien Dubois
                         </a>
-                        . Nothing leaves your browser except requests to api.github.com.
+                        . Nothing leaves your browser except requests to api.github.com. Press{' '}
+                        <kbd className='font-mono'>?</kbd> for keyboard shortcuts.
                     </p>
                 </footer>
 
@@ -654,6 +728,22 @@ export function App() {
                             loadProjects={projectsOn ? radar.loadProjects : undefined}
                         />
                     </>
+                )}
+                {dialog === 'keys' && (
+                    <Modal title='Keyboard shortcuts' onClose={() => setDialog(null)}>
+                        <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm'>
+                            {SHORTCUTS.map(([keys, what]) => (
+                                <div key={keys} className='contents'>
+                                    <dt>
+                                        <kbd className='bg-well rounded px-1.5 py-0.5 font-mono text-xs'>
+                                            {keys}
+                                        </kbd>
+                                    </dt>
+                                    <dd className='text-muted'>{what}</dd>
+                                </div>
+                            ))}
+                        </dl>
+                    </Modal>
                 )}
                 {dialog === 'login' && (
                     <LoginDialog onClose={() => setDialog(null)} onToken={login} />
