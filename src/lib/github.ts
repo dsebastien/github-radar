@@ -145,6 +145,8 @@ export interface SearchResult {
     items: Item[]
     /** True when a query had more than the API's 1000-result ceiling. */
     truncated: boolean
+    /** Sources GitHub refused to search: they do not exist or the token cannot see them. */
+    invalid: Source[]
 }
 
 /**
@@ -218,8 +220,14 @@ export class GitHubClient {
         if (!response.ok) {
             let message = `${response.status} ${response.statusText}`
             try {
-                const body = (await response.json()) as { message?: string }
+                const body = (await response.json()) as {
+                    message?: string
+                    errors?: Array<{ message?: string }>
+                }
                 if (body.message) message = body.message
+                // 422 "Validation Failed" says nothing on its own; the reason is in `errors`.
+                const details = (body.errors ?? []).map((e) => e.message).filter(Boolean)
+                if (details.length > 0) message = `${message}: ${details.join(' ')}`
             } catch {
                 /* non-JSON error body */
             }
@@ -276,6 +284,7 @@ export class GitHubClient {
         const extra = opts.extra ?? []
         const byId = new Map<number, Item>()
         let truncated = false
+        const invalid: Source[] = []
         const progress = { fetched: 0, total: 0 }
 
         /** Fetch every page of one query. Returns false when the 1000-result ceiling cut it short. */
@@ -293,24 +302,45 @@ export class GitHubClient {
             }
         }
 
+        /**
+         * GitHub answers 422 when a user, org or repo in the query does not exist or is not
+         * visible, but only when no other qualifier in the query is valid. A single source that
+         * gets a 422 is recorded as invalid and skipped; returns null for it.
+         */
+        const isInvalid = (e: unknown) => e instanceof GitHubError && e.status === 422
+        const fetchOne = async (s: Source, type: string): Promise<boolean | null> => {
+            if (invalid.some((x) => x === s)) return null
+            try {
+                return await fetchAll(buildQuery([s], state, [...extra, type]))
+            } catch (e) {
+                if (!isInvalid(e)) throw e
+                invalid.push(s)
+                return null
+            }
+        }
+
         // GitHub requires every issue search to name a type (`is:issue` or `is:pull-request`),
         // so each chunk is fetched once per type. A query that still hits the 1000-result
-        // ceiling is split per source; only a single source with 1000+ open items of one
-        // type is reported as truncated.
+        // ceiling, or is refused as a whole, is split per source; only a single source with
+        // 1000+ open items of one type is reported as truncated.
         for (const chunk of chunkSources(sources, state)) {
             for (const type of ITEM_TYPES) {
-                if (await fetchAll(buildQuery(chunk, state, [...extra, type]))) continue
-                if (chunk.length === 1) {
-                    truncated = true
+                const [only] = chunk
+                if (only && chunk.length === 1) {
+                    if ((await fetchOne(only, type)) === false) truncated = true
                     continue
                 }
+                try {
+                    if (await fetchAll(buildQuery(chunk, state, [...extra, type]))) continue
+                } catch (e) {
+                    if (!isInvalid(e)) throw e
+                }
                 for (const s of chunk) {
-                    if (!(await fetchAll(buildQuery([s], state, [...extra, type]))))
-                        truncated = true
+                    if ((await fetchOne(s, type)) === false) truncated = true
                 }
             }
         }
-        return { items: Array.from(byId.values()), truncated }
+        return { items: Array.from(byId.values()), truncated, invalid }
     }
 
     /** Rendered body, comments and whether the viewer already gave a 👍. */

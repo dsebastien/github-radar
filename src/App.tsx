@@ -24,7 +24,7 @@ import {
     sortItems,
     visibleBySources
 } from './lib/filtering'
-import { addSource, deserializeSources, removeSource, sourceKey } from './lib/sources'
+import { addSource, deserializeSources, removeSource, sourceKey, sourceLabel } from './lib/sources'
 import { load, remove, save } from './lib/storage'
 import {
     DEFAULT_FILTERS,
@@ -288,6 +288,25 @@ export function App() {
                                 <p className='rounded-lg bg-red-500/15 p-3 text-sm text-red-200'>
                                     {radar.error}
                                 </p>
+                            )}
+                            {radar.invalid.length > 0 && (
+                                <div className='text-accent-yellow flex flex-wrap items-center gap-2 text-xs'>
+                                    <span>
+                                        GitHub cannot search these sources: they do not exist, or
+                                        your token cannot see them.
+                                    </span>
+                                    {radar.invalid.map((s) => (
+                                        <button
+                                            key={sourceKey(s)}
+                                            type='button'
+                                            className='rounded border border-current px-1.5 py-0.5 hover:bg-yellow-500/10'
+                                            title='Remove this source'
+                                            onClick={() => removeSourceAndPrune(s)}
+                                        >
+                                            {sourceLabel(s)} ✕
+                                        </button>
+                                    ))}
+                                </div>
                             )}
                             {radar.truncated && (
                                 <p className='text-accent-yellow text-xs'>

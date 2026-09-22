@@ -19,6 +19,8 @@ interface Cache {
     /** Per source key: when it was last fetched. Sources without a stamp were never fetched. */
     stamps: Record<string, SourceStamp>
     truncated: boolean
+    /** Sources GitHub refused to search at the last fetch (missing, or not visible). */
+    invalid?: Source[]
 }
 
 /** Incremental fetches overlap the previous window slightly to survive clock skew. */
@@ -35,6 +37,8 @@ export interface RadarState {
     items: Item[]
     fetchedAt: number | null
     truncated: boolean
+    /** Visible sources GitHub refused to search: they do not exist or the token cannot see them. */
+    invalid: Source[]
     loading: boolean
     progress: SearchProgress | null
     error: string | null
@@ -157,6 +161,8 @@ export function useRadar(
             try {
                 const byId = new Map<number, Item>((base?.items ?? []).map((i) => [i.id, i]))
                 let truncated = base?.truncated ?? false
+                const fetchedKeys = new Set(visible.map(sourceKey))
+                const invalid = (base?.invalid ?? []).filter((s) => !fetchedKeys.has(sourceKey(s)))
                 const stamps: Record<string, SourceStamp> = { ...(base?.stamps ?? {}) }
                 let fetchedBefore = 0
                 const onProgress = (p: SearchProgress) =>
@@ -178,6 +184,7 @@ export function useRadar(
                     }
                     for (const item of result.items) byId.set(item.id, item)
                     truncated = result.truncated
+                    invalid.push(...result.invalid)
                     for (const s of full)
                         stamps[sourceKey(s)] = { fetchedAt: now, fullFetchedAt: now }
                     fetchedBefore = result.items.length
@@ -190,6 +197,7 @@ export function useRadar(
                         since: new Date(oldest - OVERLAP_MS).toISOString()
                     })
                     if (controller.signal.aborted) return
+                    invalid.push(...result.invalid)
                     for (const item of result.items) {
                         if (state === 'all' || item.state === state) byId.set(item.id, item)
                         else byId.delete(item.id)
@@ -202,7 +210,13 @@ export function useRadar(
                         }
                     }
                 }
-                const next: Cache = { state, items: Array.from(byId.values()), stamps, truncated }
+                const next: Cache = {
+                    state,
+                    items: Array.from(byId.values()),
+                    stamps,
+                    truncated,
+                    invalid
+                }
                 setCache(next)
                 save(CACHE_KEY, next)
             } catch (e: unknown) {
@@ -261,6 +275,11 @@ export function useRadar(
         return Array.from(byId.values())
     }, [usable, loading, progress])
 
+    const invalid = useMemo(() => {
+        const keys = new Set(visible.map(sourceKey))
+        return (usable?.invalid ?? []).filter((s) => keys.has(sourceKey(s)))
+    }, [usable, visible])
+
     const fetchedAt = useMemo(() => {
         if (!usable || visible.length === 0) return null
         const times = visible.map((s) => usable.stamps[sourceKey(s)]?.fetchedAt ?? 0)
@@ -275,6 +294,7 @@ export function useRadar(
         items,
         fetchedAt,
         truncated: usable?.truncated ?? false,
+        invalid,
         loading,
         progress,
         error,
