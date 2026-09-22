@@ -1,6 +1,7 @@
 import type { RawPrNode } from './enrichment'
 import { toProject, type RawProject, type RawProjectsNode } from './projects'
 import { buildQuery, chunkSources } from './query'
+import { classifyWriteProbe, parseTokenExpiration, type PermissionCheck } from './token'
 import type {
     Actor,
     Comment,
@@ -228,7 +229,12 @@ export class GitHubClient {
     constructor(
         private readonly token: string | null,
         private readonly onRateLimit: (r: RateLimit) => void = () => {},
-        private readonly fetchImpl: Fetch = (...args) => globalThis.fetch(...args)
+        private readonly fetchImpl: Fetch = (...args) => globalThis.fetch(...args),
+        /**
+         * Fires with the token's expiry from `github-authentication-token-expiration`. Browsers
+         * only see it if GitHub exposes the header to CORS requests, which it does not today.
+         */
+        private readonly onTokenExpiry: (expiresAt: number) => void = () => {}
     ) {}
 
     /** Owner repository lists, per source key, with when they were fetched. */
@@ -283,6 +289,10 @@ export class GitHubClient {
         }
         const rateLimit = readRateLimit(response)
         if (rateLimit) this.onRateLimit(rateLimit)
+        const expiresAt = parseTokenExpiration(
+            response.headers.get('github-authentication-token-expiration')
+        )
+        if (expiresAt !== null) this.onTokenExpiry(expiresAt)
         // Pace search pagination: the search budget is 10 (anonymous) or 30 (token) requests per
         // minute. When it is nearly spent, sleep until the window resets instead of tripping the
         // limit and GitHub's abuse detection.
@@ -702,6 +712,90 @@ export class GitHubClient {
             `/repos/${repo}/milestones?state=open&sort=due_on&direction=asc&per_page=100`
         )
         return data.map((m) => ({ number: m.number, title: m.title, due_on: m.due_on ?? null }))
+    }
+
+    /**
+     * What the token can do, without changing anything: reads are tried, and writes are probed
+     * with an invalid value that GitHub rejects after its permission check (see
+     * classifyWriteProbe). `issue` and `pr` are items to probe, ideally in the viewer's repos.
+     */
+    async checkPermissions(sample: {
+        issue: Item | null
+        pr: Item | null
+        owners: string[]
+    }): Promise<PermissionCheck[]> {
+        const status = async (path: string, init?: { method: string; body: unknown }) => {
+            try {
+                await this.request<unknown>(path, init)
+                return 200
+            } catch (e) {
+                return e instanceof GitHubError ? e.status : 0
+            }
+        }
+        const checks: PermissionCheck[] = []
+        try {
+            const { data } = await this.request<unknown[]>('/user/orgs?per_page=100')
+            checks.push({
+                name: 'Organizations',
+                result: data.length > 0 ? 'yes' : 'unknown',
+                detail:
+                    data.length > 0
+                        ? `Sees ${data.length} organization(s), so they are searched automatically.`
+                        : 'No organization visible: grant Members: read on each organization.'
+            })
+        } catch {
+            checks.push({
+                name: 'Organizations',
+                result: 'no',
+                detail: 'Cannot list your organizations.'
+            })
+        }
+        try {
+            const { data } = await this.request<unknown[]>(
+                '/user/repos?visibility=private&per_page=1'
+            )
+            checks.push({
+                name: 'Private repositories',
+                result: data.length > 0 ? 'yes' : 'unknown',
+                detail:
+                    data.length > 0
+                        ? 'Private repositories are visible.'
+                        : 'No private repository visible (none selected for the token, or none exist).'
+            })
+        } catch {
+            checks.push({ name: 'Private repositories', result: 'no', detail: 'Cannot list them.' })
+        }
+        for (const [name, item, kind] of [
+            ['Issues: write', sample.issue, 'issues'],
+            ['Pull requests: write', sample.pr, 'pulls']
+        ] as const) {
+            if (!item) {
+                checks.push({ name, result: 'unknown', detail: 'Nothing loaded to test with.' })
+                continue
+            }
+            const result = classifyWriteProbe(
+                await status(`/repos/${item.repo}/${kind}/${item.number}`, {
+                    method: 'PATCH',
+                    body: { state: 'permission-probe' }
+                })
+            )
+            checks.push({
+                name,
+                result,
+                detail: `Tested on ${item.repo}#${item.number} (nothing is changed). ${
+                    result === 'no' ? 'Grant read and write to act from here.' : ''
+                }`.trim()
+            })
+        }
+        const projects = await this.canReadProjects(sample.owners).catch(() => false)
+        checks.push({
+            name: 'Projects: read',
+            result: projects ? 'yes' : 'no',
+            detail: projects
+                ? 'Project membership and status are shown.'
+                : 'Not readable (or no source owner has a project). Grant Projects: read and write.'
+        })
+        return checks
     }
 
     // ---- Write (token with Issues + Pull requests read/write) -----------------

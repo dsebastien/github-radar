@@ -76,6 +76,8 @@ export interface RadarState {
     loadProjects: () => Promise<Project[]>
 }
 
+const ignoreExpiry = () => {}
+
 const CACHE_KEY = 'cache'
 /** 2: items carry `node_id` (GraphQL enrichment). */
 const CACHE_VERSION = 2
@@ -105,10 +107,15 @@ export function useRadar(
     hiddenSources: string[],
     state: StateFilter,
     settings: Settings,
-    onAuthError: () => void
+    onAuthError: () => void,
+    onTokenExpiry: (expiresAt: number) => void = ignoreExpiry
 ): RadarState {
     const [rateLimit, setRateLimit] = useState<RateLimit | null>(null)
-    const client = useMemo(() => new GitHubClient(token, setRateLimit), [token])
+    // onTokenExpiry must be stable (a state setter): a new one would recreate the client.
+    const client = useMemo(
+        () => new GitHubClient(token, setRateLimit, undefined, onTokenExpiry),
+        [token, onTokenExpiry]
+    )
 
     // Keyed by token so that a token change yields `null` immediately without a setState in an effect.
     const [viewerFor, setViewerFor] = useState<{ token: string | null; viewer: Viewer | null }>({

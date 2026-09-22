@@ -10,6 +10,7 @@ Static, private, and generic: it runs entirely in your browser, talks only to `a
 
 - **Sources**: any mix of GitHub users, organizations and single repositories. Paste a login, `org:name`, `owner/repo` or a GitHub URL.
 - **Optional login** with a fine-grained personal access token: private repositories, a much higher API rate limit, and automatic inclusion of your own account and every organization you belong to.
+- **Token hygiene**: enter the token's expiry date at login (GitHub shows it when you create the token; browsers cannot read it from the API) and a banner reminds you a week before. Settings › Check permissions probes what the token can do (organizations, private repositories, issue and PR writes, projects) without changing anything: writes are tested with an invalid value GitHub ignores or rejects after its permission check.
 - **Focus**: click a source to see only its items (click again to widen back); click a repository name on any card to filter down to that repository.
 - **Per-source visibility**: an eye toggle on each source shows or hides its items without removing it; each source shows how many items it contributes.
 - **Filters**: full-text (title, repo, `#number`, author, label), issue/PR, open/closed, labels, repos, authors, assignees, milestones (by title across repositories, or none), draft PRs, and "mine" shortcuts (assigned to me, by me, involved), plus involvement shortcuts when logged in: mentions me, review requested, commented (one extra search per kind on each refresh).

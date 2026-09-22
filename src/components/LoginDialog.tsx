@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Modal } from './Modal'
+import { fromDateInput } from '@/lib/token'
 import { Button } from './ui'
 
-const TOKEN_URL =
+export const TOKEN_URL =
     'https://github.com/settings/personal-access-tokens/new?name=GitHub+Radar&description=Read+and+act+on+issues+and+pull+requests+from+GitHub+Radar'
 
 export function LoginDialog({
@@ -10,9 +11,10 @@ export function LoginDialog({
     onToken
 }: {
     onClose: () => void
-    onToken: (token: string) => void
+    onToken: (token: string, expiresAt: number | null) => void
 }) {
     const [value, setValue] = useState('')
+    const [expires, setExpires] = useState('')
     const trimmed = value.trim()
     return (
         <Modal title='Log in with a GitHub token' onClose={onClose}>
@@ -53,10 +55,10 @@ export function LoginDialog({
                 </li>
             </ol>
             <form
-                className='mt-4 flex gap-2'
+                className='mt-4 flex flex-wrap gap-2'
                 onSubmit={(e) => {
                     e.preventDefault()
-                    if (trimmed) onToken(trimmed)
+                    if (trimmed) onToken(trimmed, fromDateInput(expires))
                 }}
             >
                 <input
@@ -72,6 +74,15 @@ export function LoginDialog({
                 <Button type='submit' variant='primary' disabled={!trimmed}>
                     Log in
                 </Button>
+                <label className='text-muted flex w-full items-center gap-2 text-xs'>
+                    Expires on (optional, for a reminder a week before):
+                    <input
+                        type='date'
+                        value={expires}
+                        onChange={(e) => setExpires(e.target.value)}
+                        className='bg-well border-line rounded-lg border px-2 py-1 text-white'
+                    />
+                </label>
             </form>
         </Modal>
     )

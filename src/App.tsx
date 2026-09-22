@@ -8,7 +8,7 @@ import { ItemCard } from './components/ItemCard'
 import { ItemDrawer } from './components/ItemDrawer'
 import { RepoActionsContext } from './components/RepoActions'
 import { RepoMenu } from './components/RepoMenu'
-import { LoginDialog } from './components/LoginDialog'
+import { LoginDialog, TOKEN_URL } from './components/LoginDialog'
 import { Modal } from './components/Modal'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SourcesPanel } from './components/SourcesPanel'
@@ -21,6 +21,8 @@ import { useLastVisit } from './hooks/useLastVisit'
 import { useRadar } from './hooks/useRadar'
 import { rangeIds } from './lib/bulk'
 import { isTypingTarget, SHORTCUTS, stepId } from './lib/keyboard'
+import { projectOwners } from './lib/projects'
+import { daysLeft, expiresSoon } from './lib/token'
 import { parseView, VIEW_PARAMS, type SavedView } from './lib/view'
 import { mutedCounts, removeNoise, toggleMuted } from './lib/noise'
 import {
@@ -86,6 +88,10 @@ export function App() {
     const [views, setViews] = usePersistedState<SavedView[]>('views', [])
     const [settings, setSettings] = usePersistedState<Settings>('settings', DEFAULT_SETTINGS)
     const [token, setToken] = useState<string | null>(() => load<string | null>(TOKEN_KEY, null))
+    const [tokenExpiresAt, setTokenExpiresAt] = usePersistedState<number | null>(
+        'tokenExpiresAt',
+        null
+    )
     const [dialog, setDialog] = useState<'login' | 'settings' | 'keys' | null>(null)
     const [selectedId, setSelectedId] = useState<number | null>(null)
     const [toasts, setToasts] = useState<Toast[]>([])
@@ -106,7 +112,8 @@ export function App() {
     const logout = useCallback(() => {
         setToken(null)
         remove(TOKEN_KEY)
-    }, [])
+        setTokenExpiresAt(null)
+    }, [setTokenExpiresAt])
     const onAuthError = useCallback(() => {
         logout()
         toast('GitHub rejected the token, so you were logged out. Log in again with a valid token.')
@@ -118,7 +125,8 @@ export function App() {
         filters.hiddenSources,
         filters.state,
         settings,
-        onAuthError
+        onAuthError,
+        setTokenExpiresAt
     )
 
     // Muted repositories and (optionally) bots are noise: out of the list, stats, facets and
@@ -354,10 +362,27 @@ export function App() {
     const selected =
         selectedId === null ? null : (radar.items.find((i) => i.id === selectedId) ?? null)
 
-    const login = (t: string) => {
+    const login = (t: string, expiresAt: number | null) => {
         setToken(t)
         save(TOKEN_KEY, t)
+        setTokenExpiresAt(expiresAt)
         setDialog(null)
+    }
+
+    /** Probe the token, testing writes on items from the viewer's own repositories if any. */
+    const checkPermissions = () => {
+        const viewer = radar.viewer
+        const own = (i: (typeof radar.items)[number]) =>
+            viewer !== null && i.repo.toLowerCase().startsWith(`${viewer.login.toLowerCase()}/`)
+        const pick = (type: 'issue' | 'pr') =>
+            radar.items.find((i) => i.type === type && own(i)) ??
+            radar.items.find((i) => i.type === type) ??
+            null
+        return radar.client.checkPermissions({
+            issue: pick('issue'),
+            pr: pick('pr'),
+            owners: viewer ? projectOwners(radar.effective, viewer.login) : []
+        })
     }
 
     const resetAll = () => {
@@ -369,7 +394,8 @@ export function App() {
             'cache',
             'mutedRepos',
             'lastVisit',
-            'views'
+            'views',
+            'tokenExpiresAt'
         ])
             remove(key)
         window.location.reload()
@@ -390,6 +416,22 @@ export function App() {
                     onRefresh={empty ? null : () => radar.refresh('auto')}
                     refreshing={radar.loading}
                 />
+                {radar.viewer && tokenExpiresAt !== null && expiresSoon(tokenExpiresAt, now) && (
+                    <div className='bg-accent-yellow/15 text-accent-yellow border-accent-yellow/30 border-b px-4 py-2 text-center text-sm'>
+                        {daysLeft(tokenExpiresAt, now) < 0
+                            ? 'Your GitHub token has expired.'
+                            : `Your GitHub token expires in ${daysLeft(tokenExpiresAt, now)} day(s), on ${new Date(tokenExpiresAt).toLocaleDateString()}.`}{' '}
+                        <a
+                            href={TOKEN_URL}
+                            target='_blank'
+                            rel='noreferrer'
+                            className='font-semibold underline'
+                        >
+                            Create a new one
+                        </a>
+                        , then log out and back in with it.
+                    </div>
+                )}
                 <Hero empty={empty} />
                 <main className='mx-auto grid max-w-[112rem] grid-cols-1 gap-5 px-4 pb-24 lg:grid-cols-[19rem_1fr] 2xl:grid-cols-[21rem_1fr] 2xl:gap-6 2xl:px-8'>
                     <div className='min-w-0 space-y-5'>
@@ -773,6 +815,9 @@ export function App() {
                         onChange={setSettings}
                         loggedIn={radar.viewer !== null}
                         projectsAvailable={radar.projectsAvailable}
+                        tokenExpiresAt={tokenExpiresAt}
+                        onTokenExpiresAt={setTokenExpiresAt}
+                        onCheckPermissions={checkPermissions}
                         onClose={() => setDialog(null)}
                         onReset={resetAll}
                     />
