@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitHubClient, GitHubError, type SearchProgress } from '@/lib/github'
+import { GitHubClient, GitHubError, LAST_COMMIT_BATCH, type SearchProgress } from '@/lib/github'
 import { applyEnrichment, carryEnrichment, ENRICH_BATCH, needsEnrichment } from '@/lib/enrichment'
 import { itemSources } from '@/lib/filtering'
 import { applyProjects, carryProjects, needsProjects, projectOwners } from '@/lib/projects'
@@ -23,6 +23,11 @@ export interface SourceStamp {
     fetchedAt: number
     /** When the last full fetch of this source started. */
     fullFetchedAt: number
+    /**
+     * Whether that full fetch included archived repositories (missing: it did). Their items
+     * never change, so incremental fetches can skip them without the cache going stale.
+     */
+    withArchived?: boolean
 }
 
 interface Cache {
@@ -127,6 +132,8 @@ export function useRadar(
     sources: Source[],
     hiddenSources: string[],
     state: StateFilter,
+    /** False when archived repositories are hidden: they are then not searched at all. */
+    includeArchived: boolean,
     settings: Settings,
     onAuthError: () => void,
     onTokenExpiry: (expiresAt: number) => void = ignoreExpiry
@@ -177,8 +184,8 @@ export function useRadar(
         return effective.filter((s) => !hidden.has(sourceKey(s)))
     }, [effective, hiddenSources])
     const scopeKey = useMemo(
-        () => `${state}|${visible.map(sourceKey).sort().join(',')}`,
-        [visible, state]
+        () => `${state}|${includeArchived}|${visible.map(sourceKey).sort().join(',')}`,
+        [visible, state, includeArchived]
     )
 
     const [cache, setCache] = useState<Cache | null>(loadCache)
@@ -227,6 +234,12 @@ export function useRadar(
     /** The cache, unless it was fetched for another item state. */
     const usable = cache && cache.state === state ? cache : null
 
+    /** Fetched without archived repositories, which are wanted now. */
+    const lacksArchived = useCallback(
+        (st: SourceStamp) => includeArchived && st.withArchived === false,
+        [includeArchived]
+    )
+
     const run = useCallback(
         async (mode: 'auto' | 'full' = 'auto') => {
             abortRef.current?.abort()
@@ -246,13 +259,16 @@ export function useRadar(
                 cacheRef.current && cacheRef.current.state === state ? cacheRef.current : null
             const now = Date.now()
             const stamp = (s: Source) => base?.stamps[sourceKey(s)]
-            // Sources never fetched, or fetched too long ago, need a full pass; the rest go incremental.
+            // Sources never fetched, fetched too long ago, or fetched without the archived
+            // repositories now wanted, need a full pass; the rest go incremental.
             const full =
                 mode === 'full'
                     ? visible
                     : visible.filter((s) => {
                           const st = stamp(s)
-                          return !st || now - st.fullFetchedAt >= FULL_REFRESH_MS
+                          return (
+                              !st || now - st.fullFetchedAt >= FULL_REFRESH_MS || lacksArchived(st)
+                          )
                       })
             const fullKeys = new Set(full.map(sourceKey))
             const partial = visible.filter((s) => !fullKeys.has(sourceKey(s)))
@@ -275,6 +291,7 @@ export function useRadar(
                 if (full.length > 0) {
                     const result = await client.search(full, state, {
                         signal: controller.signal,
+                        includeArchived,
                         onProgress
                     })
                     if (controller.signal.aborted) return
@@ -287,7 +304,11 @@ export function useRadar(
                     truncated = result.truncated
                     invalid.push(...result.invalid)
                     for (const s of full)
-                        stamps[sourceKey(s)] = { fetchedAt: now, fullFetchedAt: now }
+                        stamps[sourceKey(s)] = {
+                            fetchedAt: now,
+                            fullFetchedAt: now,
+                            withArchived: includeArchived
+                        }
                     fetchedBefore = result.items.length
                 }
                 if (partial.length > 0) {
@@ -295,6 +316,7 @@ export function useRadar(
                     const result = await client.search(partial, state, {
                         signal: controller.signal,
                         onProgress,
+                        includeArchived,
                         since: new Date(oldest - OVERLAP_MS).toISOString()
                     })
                     if (controller.signal.aborted) return
@@ -308,7 +330,8 @@ export function useRadar(
                         const st = stamp(s)
                         stamps[sourceKey(s)] = {
                             fetchedAt: now,
-                            fullFetchedAt: st?.fullFetchedAt ?? now
+                            fullFetchedAt: st?.fullFetchedAt ?? now,
+                            withArchived: st?.withArchived ?? includeArchived
                         }
                     }
                 }
@@ -340,6 +363,50 @@ export function useRadar(
                     repoInfoRef.current = info
                     setRepoInfo(info)
                     save(REPO_INFO_KEY, info)
+                }
+                // Logged in: the last commit on the default branch of every repository with
+                // items, which bot branches cannot bump. Refetched whenever the repository
+                // lists are (they replace the entries), kept as is on error.
+                if (client.authenticated) {
+                    const known = repoInfoRef.current.repos
+                    const targets = [...new Set(next.items.map((i) => i.repo))].filter(
+                        (r) =>
+                            known[r.toLowerCase()]?.lastCommitAt === undefined &&
+                            known[r.toLowerCase()] !== undefined
+                    )
+                    const commits: Record<string, string | null> = {}
+                    for (let i = 0; i < targets.length; i += LAST_COMMIT_BATCH) {
+                        try {
+                            Object.assign(
+                                commits,
+                                await client.lastCommits(
+                                    targets.slice(i, i + LAST_COMMIT_BATCH),
+                                    controller.signal
+                                )
+                            )
+                        } catch (e) {
+                            if (controller.signal.aborted) return
+                            recordError(
+                                `Last commits could not be loaded: ${
+                                    e instanceof Error ? e.message : String(e)
+                                }`,
+                                'refresh'
+                            )
+                            break
+                        }
+                        if (controller.signal.aborted) return
+                    }
+                    if (Object.keys(commits).length > 0) {
+                        const repos = { ...repoInfoRef.current.repos }
+                        for (const [repo, lastCommitAt] of Object.entries(commits)) {
+                            const entry = repos[repo]
+                            if (entry) repos[repo] = { ...entry, lastCommitAt }
+                        }
+                        const info = { ...repoInfoRef.current, repos }
+                        repoInfoRef.current = info
+                        setRepoInfo(info)
+                        save(REPO_INFO_KEY, info)
+                    }
                 }
 
                 // Review and CI state of pull requests, then project memberships: GraphQL, so
@@ -429,7 +496,17 @@ export function useRadar(
                 }
             }
         },
-        [client, visible, state, onAuthError, setProjectsAvailable, viewer, fail]
+        [
+            client,
+            visible,
+            state,
+            includeArchived,
+            lacksArchived,
+            onAuthError,
+            setProjectsAvailable,
+            viewer,
+            fail
+        ]
     )
 
     // Fetch when the visible scope changes: an in-flight fetch is aborted and restarted for the
@@ -442,7 +519,7 @@ export function useRadar(
         const c = cacheRef.current
         const needsFetch = visible.some((s) => {
             const st = c && c.state === state ? c.stamps[sourceKey(s)] : undefined
-            return !st || Date.now() - st.fetchedAt >= FRESH_MS
+            return !st || Date.now() - st.fetchedAt >= FRESH_MS || lacksArchived(st)
         })
         if (!inFlight && !needsFetch) return
         const id = window.setTimeout(() => void run('auto'), 0)

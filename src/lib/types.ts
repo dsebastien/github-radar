@@ -96,6 +96,9 @@ export interface Viewer {
     orgs: string[]
 }
 
+/** Why an issue is closed; pull requests have no reason. */
+export type CloseReason = 'completed' | 'not_planned'
+
 export type TypeFilter = 'all' | 'issue' | 'pr'
 export type StateFilter = 'open' | 'closed' | 'all'
 export type SortKey = 'updated' | 'created' | 'comments' | 'title'
@@ -157,8 +160,8 @@ export const DEFAULT_FILTERS: Filters = {
     attention: 'any',
     hideDrafts: false,
     hideBots: false,
-    hideArchived: false,
-    hideDormant: false,
+    hideArchived: true,
+    hideDormant: true,
     onlyNew: false,
     review: 'any',
     hiddenSources: [],
@@ -226,6 +229,11 @@ export interface RepoInfo {
     archived: boolean
     /** Last push to any branch, null for an empty repository. */
     pushedAt: string | null
+    /**
+     * Last commit on the default branch (logged in only): null when there is none, missing
+     * until fetched. Preferred over `pushedAt`, which bot branches keep bumping.
+     */
+    lastCommitAt?: string | null
 }
 
 export interface RepoLabel {

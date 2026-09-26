@@ -82,7 +82,7 @@ test('loads a preset, filters, and opens an item', async ({ page }) => {
     expect(errors).toEqual([])
 })
 
-test('hides archived and dormant repositories, keeps dropdowns inside the viewport', async ({
+test('hides archived and dormant repositories by default, keeps dropdowns inside the viewport', async ({
     page
 }) => {
     const errors: string[] = []
@@ -108,17 +108,16 @@ test('hides archived and dormant repositories, keeps dropdowns inside the viewpo
             ])
         })
     )
+    const queries: string[] = []
     await page.route('https://api.github.com/search/issues*', (route) => {
-        const pr = (new URL(route.request().url()).searchParams.get('q') ?? '').includes(
-            'is:pull-request'
-        )
-        const items = pr
+        const q = new URL(route.request().url()).searchParams.get('q') ?? ''
+        queries.push(q)
+        const archived = q.includes('archived:false')
+            ? []
+            : [item(4, 'Old archived bug', false, 'acme/legacy')]
+        const items = q.includes('is:pull-request')
             ? PRS
-            : [
-                  ...ISSUES,
-                  item(4, 'Old archived bug', false, 'acme/legacy'),
-                  item(5, 'Forgotten request', false, 'acme/sleepy')
-              ]
+            : [...ISSUES, ...archived, item(5, 'Forgotten request', false, 'acme/sleepy')]
         return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -127,22 +126,35 @@ test('hides archived and dormant repositories, keeps dropdowns inside the viewpo
         })
     })
 
-    await page.setViewportSize({ width: 800, height: 600 })
+    await page.setViewportSize({ width: 800, height: 500 })
     await page.goto('/?sources=org:acme')
     const cards = page.locator('article')
-    await expect(cards).toHaveCount(5)
-    await expect(page.locator('article', { hasText: 'Old archived bug' })).toContainText('archived')
+    // Archived repositories are not even searched; dormant ones are hidden once known.
+    await expect(cards).toHaveCount(3)
+    expect(queries.length).toBeGreaterThan(0)
+    for (const q of queries) expect(q).toContain('archived:false')
 
+    // Showing archived repositories refetches with them.
     await page.getByRole('button', { name: /^Hide archived/ }).click()
     await expect(cards).toHaveCount(4)
-    await expect(page.getByText('Old archived bug')).toHaveCount(0)
+    await expect(page.locator('article', { hasText: 'Old archived bug' })).toContainText('archived')
+    expect(queries.at(-1)).not.toContain('archived:false')
     await page.getByRole('button', { name: /^Hide dormant repos/ }).click()
-    await expect(cards).toHaveCount(3)
-    await expect(page.getByText('Forgotten request')).toHaveCount(0)
+    await expect(cards).toHaveCount(5)
+    await expect(page.locator('article', { hasText: 'Forgotten request' })).toContainText('dormant')
 
     // Every filter dropdown stays inside the viewport and never makes the page scroll.
     const width = await page.evaluate(() => document.documentElement.clientWidth)
-    for (const name of ['Labels', 'Repos', 'Authors', 'Assignees', 'Milestones']) {
+    for (const name of [
+        'Labels',
+        'Repos',
+        'Authors',
+        'Assignees',
+        'Milestones',
+        'Needs attention',
+        'Sort',
+        'Group by'
+    ]) {
         await page.getByRole('button', { name, exact: true }).click()
         const box = await page.locator('.fade-in.absolute').boundingBox()
         expect(box).not.toBeNull()
@@ -153,6 +165,25 @@ test('hides archived and dormant repositories, keeps dropdowns inside the viewpo
         )
         await page.keyboard.press('Escape')
     }
+
+    // The custom selects still select.
+    await page.getByRole('button', { name: 'Group by', exact: true }).click()
+    await page.getByRole('option', { name: 'Group by repo' }).click()
+    await expect(page.getByRole('heading', { name: /acme\/sleepy/ })).toBeVisible()
+    await page.getByRole('button', { name: 'Group by', exact: true }).click()
+    await page.getByRole('option', { name: 'No grouping' }).click()
+
+    // Near the bottom of the page, a menu opens upward instead of growing the page.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    const height = await page.evaluate(() => document.documentElement.scrollHeight)
+    const last = cards.last()
+    await last.hover()
+    await last.getByRole('button', { name: /^Copy links for/ }).click()
+    const menu = page.getByRole('menu')
+    const trigger = await last.getByRole('button', { name: /^Copy links for/ }).boundingBox()
+    const menuBox = await menu.boundingBox()
+    expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(trigger!.y + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(height)
 
     expect(errors).toEqual([])
 })

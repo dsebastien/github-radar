@@ -4,6 +4,7 @@ import { buildQuery, chunkSources } from './query'
 import { classifyWriteProbe, parseTokenExpiration, type PermissionCheck } from './token'
 import type {
     Actor,
+    CloseReason,
     Comment,
     Involvement,
     Item,
@@ -29,6 +30,8 @@ const DAY = 86_400_000
 const FIRST_DAY = Math.floor(Date.UTC(2008, 0, 1) / DAY)
 /** Owner repository lists change rarely; reuse them for a while. */
 const REPO_LIST_TTL = 6 * 60 * 60_000
+/** Repositories per lastCommits() query, well under GraphQL's node limits. */
+export const LAST_COMMIT_BATCH = 50
 
 const PR_DETAILS_QUERY = `query($ids: [ID!]!) {
   nodes(ids: $ids) {
@@ -359,15 +362,21 @@ export class GitHubClient {
             /** ISO timestamp: only items updated since then, in any state (incremental mode). */
             since?: string
             extra?: string[]
+            /** False: skip archived repositories (`archived:false`), here and when splitting. */
+            includeArchived?: boolean
             onProgress?: (p: SearchProgress) => void
         } = {}
     ): Promise<SearchResult> {
         if (opts.since) {
             const stamp = opts.since.slice(0, 19) + 'Z'
             const { since: _since, ...rest } = opts
-            return this.search(sources, 'all', { ...rest, extra: [`updated:>=${stamp}`] })
+            return this.search(sources, 'all', {
+                ...rest,
+                extra: [...(opts.extra ?? []), `updated:>=${stamp}`]
+            })
         }
-        const extra = opts.extra ?? []
+        const includeArchived = opts.includeArchived ?? true
+        const extra = [...(opts.extra ?? []), ...(includeArchived ? [] : ['archived:false'])]
         const byId = new Map<number, Item>()
         let truncated = false
         const invalid: Source[] = []
@@ -429,7 +438,7 @@ export class GitHubClient {
         const fetchOwnerRepos = async (s: Source, type: string): Promise<void> => {
             let repos: string[]
             try {
-                repos = await this.ownerRepos(s, state === 'open', opts.signal)
+                repos = await this.ownerRepos(s, state === 'open', includeArchived, opts.signal)
             } catch (e) {
                 if (opts.signal?.aborted) throw e
                 // The repository list is not available: settle for the first 1000 results.
@@ -540,13 +549,24 @@ export class GitHubClient {
     }
 
     /**
-     * Repositories owned by a user or org that can hold items: archived repositories and forks
-     * are skipped, and so are repositories without open issues or PRs when `openOnly`.
+     * Repositories owned by a user or org that can hold items: forks are skipped, and so are
+     * repositories without open issues or PRs when `openOnly`, and archived ones unless
+     * `includeArchived` (their items are searched like any other's).
      */
-    async ownerRepos(owner: Source, openOnly: boolean, signal?: AbortSignal): Promise<string[]> {
+    async ownerRepos(
+        owner: Source,
+        openOnly: boolean,
+        includeArchived: boolean,
+        signal?: AbortSignal
+    ): Promise<string[]> {
         const repos = await this.listOwnerRepos(owner, signal)
         return repos
-            .filter((r) => !r.archived && !r.fork && (!openOnly || r.open_issues_count > 0))
+            .filter(
+                (r) =>
+                    (includeArchived || !r.archived) &&
+                    !r.fork &&
+                    (!openOnly || r.open_issues_count > 0)
+            )
             .map((r) => r.full_name)
     }
 
@@ -597,6 +617,37 @@ export class GitHubClient {
             throw new GitHubError(errors.join(' ') || 'GraphQL error', 200)
         }
         return data.data
+    }
+
+    /**
+     * Date of the last commit on the default branch of up to LAST_COMMIT_BATCH repositories
+     * (`owner/name`), keyed by lowercased `owner/name`: null for an empty repository or one
+     * that is not visible. Bot branches do not count, unlike `pushed_at`. Token only.
+     */
+    async lastCommits(
+        repos: string[],
+        signal?: AbortSignal
+    ): Promise<Record<string, string | null>> {
+        const variables: Record<string, string> = {}
+        const fields = repos.map((repo, i) => {
+            const [owner = '', name = ''] = repo.split('/')
+            variables[`o${i}`] = owner
+            variables[`n${i}`] = name
+            return `r${i}: repository(owner: $o${i}, name: $n${i}) { defaultBranchRef { target { ... on Commit { committedDate } } } }`
+        })
+        const params = repos.map((_, i) => `$o${i}: String!, $n${i}: String!`).join(', ')
+        const data = await this.graphql<
+            Record<
+                string,
+                { defaultBranchRef: { target: { committedDate?: string } | null } | null } | null
+            >
+        >(`query(${params}) { ${fields.join(' ')} }`, variables, { signal })
+        return Object.fromEntries(
+            repos.map((repo, i) => [
+                repo.toLowerCase(),
+                data[`r${i}`]?.defaultBranchRef?.target?.committedDate ?? null
+            ])
+        )
     }
 
     /** Review decision, mergeability, draft flag and CI rollup of up to 100 pull requests. */
@@ -899,10 +950,18 @@ export class GitHubClient {
         return (data.assignees ?? []).map(toActor).filter((a): a is Actor => a !== null)
     }
 
-    async setState(item: Item, state: 'open' | 'closed'): Promise<void> {
+    /** Close (issues with a reason, `completed` by default) or reopen. */
+    async setState(
+        item: Item,
+        state: 'open' | 'closed',
+        reason: CloseReason = 'completed'
+    ): Promise<void> {
         await this.request<unknown>(`/repos/${item.repo}/issues/${item.number}`, {
             method: 'PATCH',
-            body: state === 'closed' ? { state, state_reason: 'completed' } : { state }
+            body:
+                state === 'closed' && item.type === 'issue'
+                    ? { state, state_reason: reason }
+                    : { state }
         })
     }
 }

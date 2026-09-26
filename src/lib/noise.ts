@@ -15,13 +15,15 @@ export function isBot(actor: Actor | null): boolean {
 export type RepoStatus = 'archived' | 'dormant'
 
 /**
- * Archived wins over dormant; a repository is dormant when nothing was pushed to it for
- * DORMANT_DAYS. Unknown repositories (and empty ones) have no status. Pure: `now` is injected.
+ * Archived wins over dormant; a repository is dormant when its default branch got no commit
+ * for DORMANT_DAYS (when that is known), else when nothing was pushed to any branch for as long.
+ * Unknown repositories (and empty ones) have no status. Pure: `now` is injected.
  */
 export function repoStatus(info: RepoInfo | undefined, now: number): RepoStatus | null {
     if (!info) return null
     if (info.archived) return 'archived'
-    if (info.pushedAt && now - Date.parse(info.pushedAt) >= DORMANT_DAYS * DAY) return 'dormant'
+    const last = info.lastCommitAt ?? info.pushedAt
+    if (last && now - Date.parse(last) >= DORMANT_DAYS * DAY) return 'dormant'
     return null
 }
 

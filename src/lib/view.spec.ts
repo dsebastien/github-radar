@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { activeView, parseView, saveView, serializeView, shareUrl } from './view'
+import {
+    activeView,
+    FILTERS_VERSION,
+    parseView,
+    saveView,
+    serializeView,
+    shareUrl,
+    upgradeFilters
+} from './view'
 import { DEFAULT_FILTERS, type Filters } from './types'
 
 const triage: Filters = {
@@ -51,5 +59,24 @@ describe('saved views', () => {
         const views = [{ name: 'Triage', filters: older as Filters }]
         expect(activeView(views, { ...triage, hideBots: false })?.name).toBe('Triage')
         expect(activeView(views, triage)).toBeNull()
+    })
+})
+
+describe('upgradeFilters', () => {
+    test('turns the archived and dormant toggles on once', () => {
+        const old = {
+            ...DEFAULT_FILTERS,
+            hideArchived: false,
+            hideDormant: false,
+            type: 'pr' as const
+        }
+        expect(upgradeFilters(old, 0)).toEqual({ ...DEFAULT_FILTERS, type: 'pr' })
+        expect(upgradeFilters(old, FILTERS_VERSION)).toBe(old)
+    })
+
+    test('a shared view that turns them off keeps them off', () => {
+        const params = serializeView({ ...DEFAULT_FILTERS, hideArchived: false })
+        expect(params.toString()).toBe('hideArchived=0')
+        expect(parseView(params)).toEqual({ hideArchived: false })
     })
 })

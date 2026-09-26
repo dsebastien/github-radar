@@ -166,63 +166,58 @@ export function FilterBar({ filters, facets, viewer, repoStatuses, onChange }: P
                         ))}
                     </Dropdown>
                 )}
-                <select
+                <Select
                     value={filters.attention}
-                    onChange={(e) => set({ attention: e.target.value as Filters['attention'] })}
-                    aria-label='Needs attention'
-                    className={clsx(
-                        'bg-well border-line rounded-lg border px-2.5 py-1.5 text-xs font-semibold',
-                        filters.attention !== 'any' && 'border-accent-yellow text-accent-yellow'
-                    )}
-                >
-                    <option value='any'>Attention: any</option>
-                    <option value='stale'>Stale (30+ days)</option>
-                    <option value='dormant'>Dormant (90+ days)</option>
-                    <option value='unlabeled'>Unlabeled</option>
-                    <option value='unassigned'>Unassigned</option>
-                    <option value='draft'>Draft PRs</option>
-                </select>
+                    onChange={(attention) => set({ attention })}
+                    ariaLabel='Needs attention'
+                    active='bg-accent-yellow/15 text-accent-yellow'
+                    options={[
+                        ['any', 'Attention: any'],
+                        ['stale', 'Stale (30+ days)'],
+                        ['dormant', 'Dormant (90+ days)'],
+                        ['unlabeled', 'Unlabeled'],
+                        ['unassigned', 'Unassigned'],
+                        ['draft', 'Draft PRs']
+                    ]}
+                />
                 {viewer && (
-                    <select
+                    <Select
                         value={filters.review}
-                        onChange={(e) => set({ review: e.target.value as Filters['review'] })}
-                        aria-label='Pull request review and CI state'
-                        title='Pull request review and CI state'
-                        className={clsx(
-                            'bg-well border-line rounded-lg border px-2.5 py-1.5 text-xs font-semibold',
-                            filters.review !== 'any' && 'border-secondary-text text-secondary-text'
-                        )}
-                    >
-                        <option value='any'>Reviews: any</option>
-                        <option value='needs-my-review'>Needs my review</option>
-                        <option value='review-required'>Review required</option>
-                        <option value='approved'>Approved</option>
-                        <option value='changes-requested'>Changes requested</option>
-                        <option value='failing'>Failing checks</option>
-                        <option value='ready'>Green and approved</option>
-                    </select>
+                        onChange={(review) => set({ review })}
+                        ariaLabel='Pull request review and CI state'
+                        active='bg-secondary/20 text-secondary-text'
+                        options={[
+                            ['any', 'Reviews: any'],
+                            ['needs-my-review', 'Needs my review'],
+                            ['review-required', 'Review required'],
+                            ['approved', 'Approved'],
+                            ['changes-requested', 'Changes requested'],
+                            ['failing', 'Failing checks'],
+                            ['ready', 'Green and approved']
+                        ]}
+                    />
                 )}
-                <select
+                <Select
                     value={filters.sort}
-                    onChange={(e) => set({ sort: e.target.value as Filters['sort'] })}
-                    aria-label='Sort'
-                    className='bg-well border-line rounded-lg border px-2.5 py-1.5 text-xs font-semibold'
-                >
-                    <option value='updated'>Recently updated</option>
-                    <option value='created'>Newest</option>
-                    <option value='comments'>Most discussed</option>
-                    <option value='title'>Title A–Z</option>
-                </select>
-                <select
+                    onChange={(sort) => set({ sort })}
+                    ariaLabel='Sort'
+                    options={[
+                        ['updated', 'Recently updated'],
+                        ['created', 'Newest'],
+                        ['comments', 'Most discussed'],
+                        ['title', 'Title A–Z']
+                    ]}
+                />
+                <Select
                     value={filters.group}
-                    onChange={(e) => set({ group: e.target.value as Filters['group'] })}
-                    aria-label='Group by'
-                    className='bg-well border-line rounded-lg border px-2.5 py-1.5 text-xs font-semibold'
-                >
-                    <option value='none'>No grouping</option>
-                    <option value='repo'>Group by repo</option>
-                    <option value='author'>Group by author</option>
-                </select>
+                    onChange={(group) => set({ group })}
+                    ariaLabel='Group by'
+                    options={[
+                        ['none', 'No grouping'],
+                        ['repo', 'Group by repo'],
+                        ['author', 'Group by author']
+                    ]}
+                />
                 <Chip
                     active={filters.hideDrafts}
                     onClick={() => set({ hideDrafts: !filters.hideDrafts })}
@@ -391,12 +386,20 @@ function Segmented<T extends string>({
 
 function Dropdown({
     label,
-    count,
+    count = 0,
+    active,
+    title,
+    ariaLabel,
     children
 }: {
-    label: string
-    count: number
-    children: ReactNode
+    label: ReactNode
+    count?: number
+    /** Highlight classes for the trigger when the filter is set (defaults to the count style). */
+    active?: string
+    title?: string
+    ariaLabel?: string
+    /** The panel's content; a function gets `close` to shut the panel after a choice. */
+    children: ReactNode | ((close: () => void) => ReactNode)
 }) {
     const [open, setOpen] = useState(false)
     const ref = useRef<HTMLDivElement>(null)
@@ -423,11 +426,14 @@ function Dropdown({
                 type='button'
                 onClick={() => setOpen((o) => !o)}
                 aria-expanded={open}
+                aria-label={ariaLabel}
+                title={title}
                 className={clsx(
                     'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition',
-                    count > 0
-                        ? 'bg-secondary/20 text-secondary-text'
-                        : 'bg-well text-muted hover:text-white'
+                    active ??
+                        (count > 0
+                            ? 'bg-secondary/20 text-secondary-text'
+                            : 'bg-well text-muted hover:text-white')
                 )}
             >
                 {label}
@@ -445,10 +451,65 @@ function Dropdown({
                     ref={panel}
                     className='bg-surface-elevated border-line shadow-card fade-in absolute z-40 my-1 max-h-80 w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border p-1.5'
                 >
-                    {children}
+                    {typeof children === 'function' ? children(() => setOpen(false)) : children}
                 </div>
             )}
         </div>
+    )
+}
+
+/** A single choice, styled like the multi-select dropdowns (replaces a native select). */
+function Select<T extends string>({
+    value,
+    options,
+    onChange,
+    ariaLabel,
+    title,
+    active
+}: {
+    value: T
+    options: Array<[T, string]>
+    onChange: (v: T) => void
+    ariaLabel: string
+    title?: string
+    /** Trigger classes when a non-default value is chosen. */
+    active?: string
+}) {
+    const current = options.find(([v]) => v === value)?.[1] ?? value
+    const isDefault = value === options[0]?.[0]
+    return (
+        <Dropdown
+            label={current}
+            ariaLabel={ariaLabel}
+            title={title ?? ariaLabel}
+            active={!isDefault && active ? active : 'bg-well text-muted hover:text-white'}
+        >
+            {(close) => (
+                <div role='listbox' aria-label={ariaLabel}>
+                    {options.map(([v, label]) => (
+                        <button
+                            key={v}
+                            type='button'
+                            role='option'
+                            aria-selected={v === value}
+                            onClick={() => {
+                                onChange(v)
+                                close()
+                            }}
+                            className={clsx(
+                                'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm',
+                                v === value ? 'bg-secondary/25' : 'hover:bg-white/8'
+                            )}
+                        >
+                            <span aria-hidden className='w-3 shrink-0 text-xs'>
+                                {v === value ? '✓' : ''}
+                            </span>
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </Dropdown>
     )
 }
 

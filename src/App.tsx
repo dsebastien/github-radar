@@ -24,7 +24,7 @@ import { rangeIds } from './lib/bulk'
 import { isTypingTarget, SHORTCUTS, stepId } from './lib/keyboard'
 import { projectOwners } from './lib/projects'
 import { daysLeft, expiresSoon } from './lib/token'
-import { parseView, VIEW_PARAMS, type SavedView } from './lib/view'
+import { FILTERS_VERSION, parseView, upgradeFilters, VIEW_PARAMS, type SavedView } from './lib/view'
 import { mutedCounts, removeNoise, repoStatus, statusCounts, toggleMuted } from './lib/noise'
 import {
     applyFilters,
@@ -78,13 +78,27 @@ function initialSources(): Source[] {
     return urlPreset().sources.reduce(addSource, load<Source[]>('sources', []))
 }
 
+/** The stored filters, upgraded to the current FILTERS_VERSION. Read once per page load. */
+const storedFilters = (() => {
+    let filters: Filters | null = null
+    return () => {
+        if (filters) return filters
+        filters = upgradeFilters(
+            load<Filters>('filters', DEFAULT_FILTERS),
+            load<number>('filtersVersion', 0)
+        )
+        save('filtersVersion', FILTERS_VERSION)
+        return filters
+    }
+})()
+
 export function App() {
     const [sources, setSources] = useState<Source[]>(initialSources)
     useEffect(() => save('sources', sources), [sources])
     const [filters, setFilters] = usePersistedState<Filters>(
         'filters',
         DEFAULT_FILTERS,
-        urlPreset().view ?? undefined
+        urlPreset().view ?? storedFilters()
     )
     const [views, setViews] = usePersistedState<SavedView[]>('views', [])
     const [settings, setSettings] = usePersistedState<Settings>('settings', DEFAULT_SETTINGS)
@@ -125,6 +139,7 @@ export function App() {
         sources,
         filters.hiddenSources,
         filters.state,
+        !filters.hideArchived,
         settings,
         onAuthError,
         setTokenExpiresAt
@@ -415,6 +430,8 @@ export function App() {
             'settings',
             TOKEN_KEY,
             'cache',
+            'repoInfo',
+            'filtersVersion',
             'mutedRepos',
             'lastVisit',
             'views',
@@ -742,7 +759,7 @@ export function App() {
                         )}
                         {radar.viewer && checkedItems.length > 0 && (
                             <BulkBar
-                                items={checkedItems}
+                                selected={checkedItems}
                                 client={radar.client}
                                 viewer={radar.viewer}
                                 onPatch={radar.patchItem}

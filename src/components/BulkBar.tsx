@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useRef, useState } from 'react'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import {
     applicability,
     labelOptions,
@@ -9,12 +10,14 @@ import {
 } from '@/lib/bulk'
 import { recordError } from '@/lib/diagnostics'
 import type { GitHubClient } from '@/lib/github'
-import type { Item, Milestone, Project, RepoLabel, Viewer } from '@/lib/types'
+import type { CloseReason, Item, Milestone, Project, RepoLabel, Viewer } from '@/lib/types'
 import { pluralize } from '@/lib/utils'
+import { useRepoActions } from './RepoActions'
 import { Button, LabelChip, Spinner } from './ui'
 
 interface Props {
-    items: Item[]
+    /** The selection; items of archived repositories are read-only and left out of actions. */
+    selected: Item[]
     client: GitHubClient
     viewer: Viewer
     onPatch: (id: number, patch: Partial<Item>) => void
@@ -26,11 +29,26 @@ interface Props {
 
 type Panel = 'labels' | 'milestone' | 'project' | 'close' | null
 
+/** The close comment offered until the user writes their own (then that one is remembered). */
+export const DEFAULT_CLOSE_COMMENT =
+    'Closing this as it has been inactive for a long time. Feel free to reopen it if it is still relevant.'
+
 /**
  * Sticky bar for acting on the selected items. Every action runs item by item with a progress
  * counter; failures are listed per item and never stop the rest.
  */
-export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, loadProjects }: Props) {
+export function BulkBar({
+    selected,
+    client,
+    viewer,
+    onPatch,
+    onToast,
+    onClear,
+    loadProjects
+}: Props) {
+    const status = useRepoActions()?.status
+    const items = selected.filter((i) => status?.(i.repo) !== 'archived')
+    const readOnly = selected.length - items.length
     const [panel, setPanel] = useState<Panel>(null)
     const [running, setRunning] = useState<{ label: string; done: number; total: number } | null>(
         null
@@ -47,6 +65,10 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, load
     const project = projects?.find((p) => p.id === projectId) ?? null
     const inProject = (i: Item) => (i.projects ?? []).find((l) => l.projectId === projectId)
     const abortRef = useRef<AbortController | null>(null)
+    const [closeReason, setCloseReason] = useState<CloseReason>('not_planned')
+    const [closeWithComment, setCloseWithComment] = usePersistedState('closeWithComment', false)
+    const [closeComment, setCloseComment] = usePersistedState('closeComment', DEFAULT_CLOSE_COMMENT)
+    const closeBody = closeWithComment ? closeComment.trim() : ''
 
     const me = viewer.login.toLowerCase()
     const isMine = (i: Item) => i.assignees.some((a) => a.login.toLowerCase() === me)
@@ -223,7 +245,17 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, load
     return (
         <div className='bg-surface-elevated border-line shadow-card fade-in sticky bottom-3 z-20 rounded-xl border p-3 text-sm'>
             <div className='flex flex-wrap items-center gap-2'>
-                <span className='font-bold'>{pluralize(items.length, 'selected', 'selected')}</span>
+                <span className='font-bold'>
+                    {pluralize(selected.length, 'selected', 'selected')}
+                </span>
+                {readOnly > 0 && (
+                    <span
+                        className='text-faint text-xs'
+                        title='Archived repositories are read-only on GitHub: their items are skipped'
+                    >
+                        ({readOnly} archived, skipped)
+                    </span>
+                )}
                 <Button size='sm' variant='ghost' onClick={onClear} disabled={busy}>
                     Clear
                 </Button>
@@ -231,7 +263,7 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, load
                 <Button
                     size='sm'
                     onClick={() => void openLabels()}
-                    disabled={busy}
+                    disabled={busy || items.length === 0}
                     aria-expanded={panel === 'labels'}
                 >
                     🏷 Labels
@@ -239,7 +271,7 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, load
                 <Button
                     size='sm'
                     onClick={() => void openMilestones()}
-                    disabled={busy}
+                    disabled={busy || items.length === 0}
                     aria-expanded={panel === 'milestone'}
                 >
                     ◆ Milestone
@@ -248,7 +280,7 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, load
                     <Button
                         size='sm'
                         onClick={() => void openProjects()}
-                        disabled={busy}
+                        disabled={busy || items.length === 0}
                         aria-expanded={panel === 'project'}
                     >
                         ▦ Project
@@ -285,7 +317,7 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, load
                 <Button
                     size='sm'
                     variant='ghost'
-                    disabled={busy}
+                    disabled={busy || items.length === 0}
                     onClick={() => setPanel(panel === 'close' ? null : 'close')}
                     aria-expanded={panel === 'close'}
                 >
@@ -467,18 +499,80 @@ export function BulkBar({ items, client, viewer, onPatch, onToast, onClear, load
 
             {panel === 'close' && (
                 <div className='border-line mt-3 flex flex-wrap items-center gap-2 border-t pt-3 text-xs'>
-                    <span className='text-muted'>Are you sure?</span>
+                    <span className='text-muted'>Close issues as</span>
+                    <div className='bg-well inline-flex rounded-lg p-0.5' role='group'>
+                        {(
+                            [
+                                ['completed', 'Completed'],
+                                ['not_planned', 'Not planned']
+                            ] as const
+                        ).map(([value, label]) => (
+                            <button
+                                key={value}
+                                type='button'
+                                onClick={() => setCloseReason(value)}
+                                aria-pressed={closeReason === value}
+                                className={clsx(
+                                    'rounded-md px-2.5 py-1 font-semibold transition',
+                                    closeReason === value
+                                        ? 'bg-secondary text-white'
+                                        : 'text-muted hover:text-white'
+                                )}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    <label className='text-muted flex items-center gap-1.5'>
+                        <input
+                            type='checkbox'
+                            checked={closeWithComment}
+                            onChange={(e) => setCloseWithComment(e.target.checked)}
+                            className='accent-secondary'
+                        />
+                        Comment first
+                    </label>
+                    {closeWithComment && (
+                        <div className='flex w-full items-start gap-2'>
+                            <textarea
+                                value={closeComment}
+                                onChange={(e) => setCloseComment(e.target.value)}
+                                rows={2}
+                                aria-label='Close comment'
+                                className='bg-well border-line focus:border-secondary-text min-w-0 flex-1 resize-y rounded-lg border px-3 py-2 text-sm outline-none'
+                            />
+                            {closeComment !== DEFAULT_CLOSE_COMMENT && (
+                                <Button
+                                    size='sm'
+                                    variant='ghost'
+                                    onClick={() => setCloseComment(DEFAULT_CLOSE_COMMENT)}
+                                    title='Back to the default comment'
+                                >
+                                    Reset
+                                </Button>
+                            )}
+                        </div>
+                    )}
                     <Button
                         size='sm'
                         variant='danger'
-                        disabled={closable.none}
+                        disabled={closable.none || (closeWithComment && !closeBody)}
                         onClick={() =>
                             void run(
                                 'Close',
                                 items.filter((i) => i.state === 'open'),
                                 async (i) => {
-                                    await client.setState(i, 'closed')
-                                    return { state: 'closed', updated_at: new Date().toISOString() }
+                                    let comments = i.comments
+                                    if (closeBody) {
+                                        await client.comment(i, closeBody)
+                                        comments++
+                                    }
+                                    await client.setState(i, 'closed', closeReason)
+                                    return {
+                                        state: 'closed',
+                                        comments,
+                                        updated_at: new Date().toISOString()
+                                    }
                                 }
                             )
                         }

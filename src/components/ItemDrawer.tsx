@@ -2,11 +2,20 @@ import clsx from 'clsx'
 import { useCallback, useEffect, useState } from 'react'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import type { GitHubClient } from '@/lib/github'
-import type { Item, ItemDetail, Milestone, Project, RepoLabel, Viewer } from '@/lib/types'
+import type {
+    CloseReason,
+    Item,
+    ItemDetail,
+    Milestone,
+    Project,
+    RepoLabel,
+    Viewer
+} from '@/lib/types'
 import { recordError } from '@/lib/diagnostics'
 import { formatDate, timeAgo } from '@/lib/utils'
 import { PrBadges } from './PrBadges'
 import { ProjectsSection } from './ProjectsSection'
+import { useRepoActions } from './RepoActions'
 import { RepoMenu } from './RepoMenu'
 import { Avatar, Button, ExternalIcon, IssueIcon, LabelChip, PullRequestIcon, Spinner } from './ui'
 
@@ -40,6 +49,8 @@ export function ItemDrawer({
     onLogin,
     loadProjects
 }: Props) {
+    // Archived repositories are read-only on GitHub: every write would fail.
+    const archived = useRepoActions()?.status(item.repo) === 'archived'
     const [detail, setDetail] = useState<ItemDetail | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [busy, setBusy] = useState<string | null>(null)
@@ -181,10 +192,10 @@ export function ItemDrawer({
             onPatch({ assignees: await client.assignSelf(item, viewer.login, !isAssigned) })
         })
 
-    const setState = () =>
+    const setState = (reason?: CloseReason) =>
         guard('state', async () => {
             const next = item.state === 'open' ? 'closed' : 'open'
-            await client.setState(item, next)
+            await client.setState(item, next, reason)
             onPatch({ state: next, updated_at: new Date().toISOString() })
             setConfirmState(false)
             onToast(next === 'closed' ? 'Closed.' : 'Reopened.')
@@ -295,7 +306,18 @@ export function ItemDrawer({
                 </div>
             </header>
 
-            <div className='border-line flex flex-wrap items-center gap-2 border-b p-3'>
+            {archived && (
+                <p className='border-line text-muted border-b px-3 py-2 text-xs'>
+                    This repository is archived, so it is read-only on GitHub: no reactions,
+                    comments, labels, assignments or state changes.
+                </p>
+            )}
+            <div
+                className={clsx(
+                    'border-line flex flex-wrap items-center gap-2 border-b p-3',
+                    archived && 'hidden'
+                )}
+            >
                 <Button
                     size='sm'
                     variant={detail?.viewerReacted ? 'primary' : 'secondary'}
@@ -316,15 +338,39 @@ export function ItemDrawer({
                 </Button>
                 {confirmState ? (
                     <span className='ml-auto flex items-center gap-1.5 text-xs'>
-                        {item.state === 'open' ? 'Close this?' : 'Reopen this?'}
-                        <Button
-                            size='sm'
-                            variant='danger'
-                            onClick={() => void setState()}
-                            disabled={busy !== null}
-                        >
-                            Yes
-                        </Button>
+                        {item.state === 'open' && item.type === 'issue' ? (
+                            <>
+                                Close as
+                                <Button
+                                    size='sm'
+                                    variant='danger'
+                                    onClick={() => void setState('completed')}
+                                    disabled={busy !== null}
+                                >
+                                    Completed
+                                </Button>
+                                <Button
+                                    size='sm'
+                                    variant='danger'
+                                    onClick={() => void setState('not_planned')}
+                                    disabled={busy !== null}
+                                >
+                                    Not planned
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                {item.state === 'open' ? 'Close this?' : 'Reopen this?'}
+                                <Button
+                                    size='sm'
+                                    variant='danger'
+                                    onClick={() => void setState()}
+                                    disabled={busy !== null}
+                                >
+                                    Yes
+                                </Button>
+                            </>
+                        )}
                         <Button size='sm' variant='ghost' onClick={() => setConfirmState(false)}>
                             No
                         </Button>
@@ -486,11 +532,13 @@ export function ItemDrawer({
                         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') void submitComment()
                     }}
                     placeholder={
-                        viewer
-                            ? 'Write a comment (Markdown). Ctrl/⌘+Enter to post.'
-                            : 'Log in to comment.'
+                        archived
+                            ? 'Archived repository: read-only.'
+                            : viewer
+                              ? 'Write a comment (Markdown). Ctrl/⌘+Enter to post.'
+                              : 'Log in to comment.'
                     }
-                    disabled={!viewer}
+                    disabled={!viewer || archived}
                     rows={3}
                     className='bg-well border-line focus:border-secondary-text w-full resize-y rounded-lg border px-3 py-2 text-sm outline-none disabled:opacity-60'
                 />
@@ -499,7 +547,7 @@ export function ItemDrawer({
                         type='submit'
                         variant='primary'
                         size='sm'
-                        disabled={!viewer || !comment.trim() || busy !== null}
+                        disabled={!viewer || archived || !comment.trim() || busy !== null}
                     >
                         Comment
                     </Button>

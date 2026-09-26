@@ -71,6 +71,18 @@ export function shareUrl(base: string, sources: Source[], filters: Filters): str
     return url.toString()
 }
 
+/** Bumped when the stored filters need an upgrade (see upgradeFilters). */
+export const FILTERS_VERSION = 1
+
+/**
+ * Stored filters from an older version, brought up to date. 1: archived and dormant
+ * repositories became hidden by default, overriding the `false` that 0.3.0 stored.
+ */
+export function upgradeFilters(stored: Filters, version: number): Filters {
+    if (version >= FILTERS_VERSION) return stored
+    return { ...stored, hideArchived: true, hideDormant: true }
+}
+
 export interface SavedView {
     name: string
     filters: Filters

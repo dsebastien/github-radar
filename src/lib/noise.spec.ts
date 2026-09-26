@@ -89,6 +89,17 @@ describe('repository status', () => {
         expect(repoStatus(undefined, now)).toBeNull()
     })
 
+    test('the last commit on the default branch wins over the last push', () => {
+        const botPushed = { archived: false, pushedAt: '2026-09-25T00:00:00Z' }
+        expect(repoStatus({ ...botPushed, lastCommitAt: '2026-01-01T00:00:00Z' }, now)).toBe(
+            'dormant'
+        )
+        expect(repoStatus({ ...botPushed, lastCommitAt: null }, now)).toBeNull()
+        expect(
+            repoStatus({ ...info['o/dormant']!, lastCommitAt: '2026-09-20T00:00:00Z' }, now)
+        ).toBeNull()
+    })
+
     const items = [
         item(1, 'o/Archived', actor('a')),
         item(2, 'o/dormant', actor('a')),

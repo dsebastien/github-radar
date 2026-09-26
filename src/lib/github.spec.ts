@@ -134,15 +134,36 @@ describe('GitHubClient.search past the 1000-result ceiling', () => {
         expect(queries.filter((q) => q.includes('user:big'))).toHaveLength(2)
         const repoQueries = queries.filter((q) => q.includes('repo:') && !q.includes('created:'))
         for (const q of repoQueries) expect(q.length).toBeLessThanOrEqual(256)
-        // Archived repositories, forks and repositories without open items are skipped.
+        // Forks and repositories without open items are skipped; archived ones are searched.
         const all = queries.join(' ')
-        expect(all).not.toContain('big/archived')
+        expect(all).toContain('big/archived')
         expect(all).not.toContain('big/fork')
         expect(all).not.toContain('big/quiet')
         // Several repositories share a query.
         expect(repoQueries.some((q) => q.split('repo:').length > 3)).toBe(true)
         // The repository list is fetched once and reused for the second item type.
         expect(paths.filter((p) => p === '/users/big/repos')).toHaveLength(1)
+    })
+
+    test('leaves archived repositories out of every query when asked to', async () => {
+        const queries: string[] = []
+        const client = new GitHubClient(null, () => {}, bigFetch(queries, []))
+        await client.search([big], 'open', { includeArchived: false })
+        expect(queries.join(' ')).not.toContain('big/archived')
+        for (const q of queries) expect(q).toContain('archived:false')
+    })
+
+    test('keeps archived:false in incremental searches', async () => {
+        const queries: string[] = []
+        const client = new GitHubClient(null, () => {}, fakeFetch(queries))
+        await client.search([ok], 'open', {
+            includeArchived: false,
+            since: '2026-09-01T00:00:00.000Z'
+        })
+        for (const q of queries) {
+            expect(q).toContain('archived:false')
+            expect(q).toContain('updated:>=2026-09-01T00:00:00Z')
+        }
     })
 
     test('splits a single huge repository by creation date', async () => {
@@ -262,7 +283,70 @@ describe('GitHubClient.repoInfo', () => {
             failed: [{ kind: 'user', value: 'ghost' }]
         })
         // The owner listing is cached and shared with ownerRepos().
-        expect(await client.ownerRepos({ kind: 'org', value: 'acme' }, true)).toEqual([])
+        expect(await client.ownerRepos({ kind: 'org', value: 'acme' }, true, false)).toEqual([])
+        expect(await client.ownerRepos({ kind: 'org', value: 'acme' }, true, true)).toEqual([
+            'acme/Old'
+        ])
         expect(paths.filter((p) => p === '/orgs/acme/repos')).toHaveLength(1)
+    })
+})
+
+describe('GitHubClient.lastCommits', () => {
+    test('asks for every repository in one query, with variables, and keys by lowercased name', async () => {
+        let body: { query: string; variables: Record<string, string> } | null = null
+        const client = new GitHubClient(
+            't',
+            () => {},
+            (_input, init) => {
+                body = JSON.parse(init?.body as string) as typeof body
+                return Promise.resolve(
+                    json(200, {
+                        data: {
+                            r0: {
+                                defaultBranchRef: {
+                                    target: { committedDate: '2026-01-01T00:00:00Z' }
+                                }
+                            },
+                            r1: { defaultBranchRef: null },
+                            r2: null
+                        }
+                    })
+                )
+            }
+        )
+        expect(await client.lastCommits(['Acme/One', 'acme/empty', 'acme/gone'])).toEqual({
+            'acme/one': '2026-01-01T00:00:00Z',
+            'acme/empty': null,
+            'acme/gone': null
+        })
+        expect(body!.variables).toMatchObject({ o0: 'Acme', n0: 'One', o2: 'acme', n2: 'gone' })
+        expect(body!.query).not.toContain('Acme')
+    })
+})
+
+describe('GitHubClient.setState', () => {
+    const target = (type: 'issue' | 'pr') =>
+        ({ repo: 'a/b', number: 7, type }) as unknown as Parameters<GitHubClient['setState']>[0]
+
+    test('closes issues with a reason, pull requests without one', async () => {
+        const bodies: unknown[] = []
+        const client = new GitHubClient(
+            't',
+            () => {},
+            (_input, init) => {
+                bodies.push(JSON.parse(init?.body as string))
+                return Promise.resolve(json(200, {}))
+            }
+        )
+        await client.setState(target('issue'), 'closed', 'not_planned')
+        await client.setState(target('issue'), 'closed')
+        await client.setState(target('pr'), 'closed', 'not_planned')
+        await client.setState(target('issue'), 'open')
+        expect(bodies).toEqual([
+            { state: 'closed', state_reason: 'not_planned' },
+            { state: 'closed', state_reason: 'completed' },
+            { state: 'closed' },
+            { state: 'open' }
+        ])
     })
 })
