@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useEffect, useId, useRef, useState } from 'react'
+import { usePopoverPlacement } from '@/hooks/usePopoverPlacement'
 import { copyText, repoUrls } from '@/lib/repo'
 import { useRepoActions } from './RepoActions'
 import { ExternalIcon } from './ui'
@@ -20,6 +21,8 @@ interface Props {
 export function RepoMenu({ repo, onToast, subtle, className }: Props) {
     const [open, setOpen] = useState(false)
     const root = useRef<HTMLDivElement>(null)
+    const menu = useRef<HTMLDivElement>(null)
+    usePopoverPlacement(open, root, menu)
     const id = useId()
     const urls = repoUrls(repo)
     const actions = useRepoActions()
@@ -77,9 +80,10 @@ export function RepoMenu({ repo, onToast, subtle, className }: Props) {
             </button>
             {open && (
                 <div
+                    ref={menu}
                     id={id}
                     role='menu'
-                    className='bg-surface border-line shadow-card absolute top-full left-0 z-40 mt-1 min-w-[16rem] rounded-lg border p-1 text-left text-sm font-normal normal-case'
+                    className='bg-surface border-line shadow-card absolute z-40 my-1 max-w-[calc(100vw-1rem)] min-w-[16rem] overflow-y-auto rounded-lg border p-1 text-left text-sm font-normal normal-case'
                 >
                     <div className='text-faint truncate px-2 py-1 font-mono text-xs'>{repo}</div>
                     {entries.map((entry) => (

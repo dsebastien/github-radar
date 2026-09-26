@@ -1,13 +1,18 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Facets } from '@/lib/filtering'
+import { usePopoverPlacement } from '@/hooks/usePopoverPlacement'
+import { DORMANT_DAYS, type Facets } from '@/lib/filtering'
+import type { RepoStatus } from '@/lib/noise'
 import { DEFAULT_FILTERS, NO_MILESTONE, NO_PROJECT, type Filters, type Viewer } from '@/lib/types'
+import { RepoStatusTag } from './RepoStatusTag'
 import { Avatar, Button, Chip, LabelChip } from './ui'
 
 interface Props {
     filters: Filters
     facets: Facets
     viewer: Viewer | null
+    /** Items per repository status, before the archived / dormant toggles apply. */
+    repoStatuses?: Record<RepoStatus, number>
     onChange: (f: Filters) => void
 }
 
@@ -15,7 +20,7 @@ function toggle(list: string[], value: string): string[] {
     return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
 }
 
-export function FilterBar({ filters, facets, viewer, onChange }: Props) {
+export function FilterBar({ filters, facets, viewer, repoStatuses, onChange }: Props) {
     const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch })
     const activeCount =
         filters.labels.length +
@@ -92,6 +97,7 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                             count={r.count}
                         >
                             <span className='truncate'>{r.name}</span>
+                            <RepoStatusTag repo={r.name} />
                         </Row>
                     ))}
                 </Dropdown>
@@ -229,6 +235,26 @@ export function FilterBar({ filters, facets, viewer, onChange }: Props) {
                     title='Hide items opened by bots (Dependabot, Renovate, GitHub Actions, apps)'
                 >
                     Hide bots
+                </Chip>
+                <Chip
+                    active={filters.hideArchived}
+                    onClick={() => set({ hideArchived: !filters.hideArchived })}
+                    title='Hide items of archived repositories'
+                >
+                    Hide archived
+                    {repoStatuses && repoStatuses.archived > 0 && (
+                        <span className='opacity-70'>{repoStatuses.archived}</span>
+                    )}
+                </Chip>
+                <Chip
+                    active={filters.hideDormant}
+                    onClick={() => set({ hideDormant: !filters.hideDormant })}
+                    title={`Hide items of dormant repositories (nothing pushed for ${DORMANT_DAYS}+ days)`}
+                >
+                    Hide dormant repos
+                    {repoStatuses && repoStatuses.dormant > 0 && (
+                        <span className='opacity-70'>{repoStatuses.dormant}</span>
+                    )}
                 </Chip>
                 {viewer && (
                     <Segmented
@@ -374,6 +400,8 @@ function Dropdown({
 }) {
     const [open, setOpen] = useState(false)
     const ref = useRef<HTMLDivElement>(null)
+    const panel = useRef<HTMLDivElement>(null)
+    usePopoverPlacement(open, ref, panel)
     useEffect(() => {
         if (!open) return
         const onDown = (e: MouseEvent) => {
@@ -413,7 +441,10 @@ function Dropdown({
                 </span>
             </button>
             {open && (
-                <div className='bg-surface-elevated border-line shadow-card fade-in absolute left-0 z-40 mt-1 max-h-80 w-72 overflow-y-auto rounded-xl border p-1.5'>
+                <div
+                    ref={panel}
+                    className='bg-surface-elevated border-line shadow-card fade-in absolute z-40 my-1 max-h-80 w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border p-1.5'
+                >
                     {children}
                 </div>
             )}
