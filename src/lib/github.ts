@@ -12,6 +12,7 @@ import type {
     Milestone,
     Project,
     RateLimit,
+    RepoInfo,
     RepoLabel,
     Source,
     StateFilter,
@@ -120,6 +121,7 @@ interface RawRepo {
     archived: boolean
     fork: boolean
     open_issues_count: number
+    pushed_at: string | null
 }
 
 interface RawSearch {
@@ -510,39 +512,69 @@ export class GitHubClient {
     }
 
     /**
-     * Repositories owned by a user or org that can hold items: archived repositories and forks
-     * are skipped, and so are repositories without open issues or PRs when `openOnly`. Cached per
-     * owner for a few hours. The viewer's own account is listed with private repositories.
+     * Every repository owned by a user or org, cached per owner for a few hours. The viewer's
+     * own account is listed with private repositories.
      */
-    async ownerRepos(owner: Source, openOnly: boolean, signal?: AbortSignal): Promise<string[]> {
+    private async listOwnerRepos(owner: Source, signal?: AbortSignal): Promise<RawRepo[]> {
         const key = `${owner.kind}:${owner.value.toLowerCase()}`
         const cached = this.repoLists.get(key)
-        let repos = cached && Date.now() - cached.at < REPO_LIST_TTL ? cached.repos : null
-        if (!repos) {
-            const self =
-                owner.kind === 'user' &&
-                this.viewerLogin?.toLowerCase() === owner.value.toLowerCase()
-            const base =
-                owner.kind === 'org'
-                    ? `/orgs/${owner.value}/repos?type=all`
-                    : self
-                      ? '/user/repos?affiliation=owner&visibility=all'
-                      : `/users/${owner.value}/repos?type=owner`
-            const list: RawRepo[] = []
-            for (let page = 1; ; page++) {
-                const { data } = await this.request<RawRepo[]>(
-                    `${base}&per_page=100&page=${page}`,
-                    { signal }
-                )
-                list.push(...data)
-                if (data.length < 100) break
-            }
-            repos = list
-            this.repoLists.set(key, { at: Date.now(), repos })
+        if (cached && Date.now() - cached.at < REPO_LIST_TTL) return cached.repos
+        const self =
+            owner.kind === 'user' && this.viewerLogin?.toLowerCase() === owner.value.toLowerCase()
+        const base =
+            owner.kind === 'org'
+                ? `/orgs/${owner.value}/repos?type=all`
+                : self
+                  ? '/user/repos?affiliation=owner&visibility=all'
+                  : `/users/${owner.value}/repos?type=owner`
+        const repos: RawRepo[] = []
+        for (let page = 1; ; page++) {
+            const { data } = await this.request<RawRepo[]>(`${base}&per_page=100&page=${page}`, {
+                signal
+            })
+            repos.push(...data)
+            if (data.length < 100) break
         }
+        this.repoLists.set(key, { at: Date.now(), repos })
+        return repos
+    }
+
+    /**
+     * Repositories owned by a user or org that can hold items: archived repositories and forks
+     * are skipped, and so are repositories without open issues or PRs when `openOnly`.
+     */
+    async ownerRepos(owner: Source, openOnly: boolean, signal?: AbortSignal): Promise<string[]> {
+        const repos = await this.listOwnerRepos(owner, signal)
         return repos
             .filter((r) => !r.archived && !r.fork && (!openOnly || r.open_issues_count > 0))
             .map((r) => r.full_name)
+    }
+
+    /**
+     * Archived flag and last push of every repository of the sources, keyed by lowercased
+     * `owner/name`: one listing per user or org (shared with ownerRepos), one call per repo
+     * source. A source that cannot be read is reported in `failed` rather than failing the rest.
+     */
+    async repoInfo(
+        sources: Source[],
+        signal?: AbortSignal
+    ): Promise<{ repos: Record<string, RepoInfo>; failed: Source[] }> {
+        const out: Record<string, RepoInfo> = {}
+        const failed: Source[] = []
+        const add = (r: RawRepo) =>
+            (out[r.full_name.toLowerCase()] = { archived: r.archived, pushedAt: r.pushed_at })
+        for (const s of sources) {
+            try {
+                if (s.kind === 'repo') {
+                    const { data } = await this.request<RawRepo>(`/repos/${s.value}`, { signal })
+                    add(data)
+                } else for (const r of await this.listOwnerRepos(s, signal)) add(r)
+            } catch (e) {
+                if (signal?.aborted) throw e
+                failed.push(s)
+            }
+        }
+        return { repos: out, failed }
     }
 
     /**

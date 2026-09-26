@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { isBot, mutedCounts, removeNoise, toggleMuted } from './noise'
-import type { Actor, Item } from './types'
+import { isBot, mutedCounts, removeNoise, repoStatus, statusCounts, toggleMuted } from './noise'
+import type { Actor, Item, RepoInfo } from './types'
 
 const actor = (login: string, bot?: boolean): Actor => ({
     login,
@@ -66,5 +66,48 @@ describe('removeNoise', () => {
     test('toggleMuted is case-insensitive', () => {
         expect(toggleMuted(['o/r'], 'O/R')).toEqual([])
         expect(toggleMuted([], 'o/r')).toEqual(['o/r'])
+    })
+})
+
+describe('repository status', () => {
+    const now = Date.parse('2026-09-26T00:00:00Z')
+    const info: Record<string, RepoInfo> = {
+        'o/archived': { archived: true, pushedAt: '2026-09-25T00:00:00Z' },
+        'o/dormant': { archived: false, pushedAt: '2026-06-01T00:00:00Z' },
+        'o/active': { archived: false, pushedAt: '2026-09-01T00:00:00Z' },
+        'o/empty': { archived: false, pushedAt: null }
+    }
+
+    test('archived wins over dormant, 90 days without a push is dormant', () => {
+        expect(repoStatus(info['o/archived'], now)).toBe('archived')
+        expect(repoStatus({ archived: true, pushedAt: '2020-01-01T00:00:00Z' }, now)).toBe(
+            'archived'
+        )
+        expect(repoStatus(info['o/dormant'], now)).toBe('dormant')
+        expect(repoStatus(info['o/active'], now)).toBeNull()
+        expect(repoStatus(info['o/empty'], now)).toBeNull()
+        expect(repoStatus(undefined, now)).toBeNull()
+    })
+
+    const items = [
+        item(1, 'o/Archived', actor('a')),
+        item(2, 'o/dormant', actor('a')),
+        item(3, 'o/active', actor('a')),
+        item(4, 'o/unknown', actor('a'))
+    ]
+    const ids = (rules: { hideArchived?: boolean; hideDormant?: boolean }) =>
+        removeNoise(items, { mutedRepos: [], hideBots: false, repoInfo: info, now, ...rules }).map(
+            (i) => i.id
+        )
+
+    test('hides archived and dormant repositories independently, keeps unknown ones', () => {
+        expect(ids({ hideArchived: true })).toEqual([2, 3, 4])
+        expect(ids({ hideDormant: true })).toEqual([1, 3, 4])
+        expect(ids({ hideArchived: true, hideDormant: true })).toEqual([3, 4])
+        expect(ids({})).toEqual([1, 2, 3, 4])
+    })
+
+    test('counts items per status', () => {
+        expect(statusCounts(items, info, now)).toEqual({ archived: 1, dormant: 1 })
     })
 })

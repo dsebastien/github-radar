@@ -3,6 +3,7 @@ import { attentionFlags } from '@/lib/filtering'
 import type { Item } from '@/lib/types'
 import { pluralize, timeAgo } from '@/lib/utils'
 import { PrBadges } from './PrBadges'
+import { RepoStatusTag } from './RepoStatusTag'
 import { RepoMenu } from './RepoMenu'
 import { Avatar, IssueIcon, LabelChip, PullRequestIcon } from './ui'
 
@@ -95,6 +96,7 @@ export function ItemCard({
                             {item.repo}
                         </button>
                         <RepoMenu repo={item.repo} onToast={onToast} subtle />
+                        <RepoStatusTag repo={item.repo} />
                         <span>#{item.number}</span>
                         {fresh && (
                             <span

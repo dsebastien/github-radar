@@ -1,12 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
-const item = (id: number, title: string, pr = false) => ({
+const item = (id: number, title: string, pr = false, repo = 'acme/widgets') => ({
     id,
     node_id: `N${id}`,
     number: id,
     title,
-    html_url: `https://github.com/acme/widgets/${pr ? 'pull' : 'issues'}/${id}`,
-    repository_url: 'https://api.github.com/repos/acme/widgets',
+    html_url: `https://github.com/${repo}/${pr ? 'pull' : 'issues'}/${id}`,
+    repository_url: `https://api.github.com/repos/${repo}`,
     state: 'open',
     draft: false,
     ...(pr ? { pull_request: {} } : {}),
@@ -78,6 +78,81 @@ test('loads a preset, filters, and opens an item', async ({ page }) => {
     await page.locator('article', { hasText: 'Crash on startup' }).click()
     const panel = page.getByRole('complementary', { name: 'acme/widgets #1' })
     await expect(panel).toContainText('Steps to reproduce')
+
+    expect(errors).toEqual([])
+})
+
+test('hides archived and dormant repositories, keeps dropdowns inside the viewport', async ({
+    page
+}) => {
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
+    await mockGitHub(page)
+    const repo = (name: string, archived: boolean, daysAgo: number) => ({
+        full_name: `acme/${name}`,
+        archived,
+        fork: false,
+        open_issues_count: 1,
+        pushed_at: new Date(Date.now() - daysAgo * 86_400_000).toISOString()
+    })
+    // Registered last, so these win over the generic mock.
+    await page.route('https://api.github.com/orgs/acme/repos*', (route) =>
+        route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            headers: { 'access-control-allow-origin': '*' },
+            body: JSON.stringify([
+                repo('widgets', false, 1),
+                repo('legacy', true, 10),
+                repo('sleepy', false, 200)
+            ])
+        })
+    )
+    await page.route('https://api.github.com/search/issues*', (route) => {
+        const pr = (new URL(route.request().url()).searchParams.get('q') ?? '').includes(
+            'is:pull-request'
+        )
+        const items = pr
+            ? PRS
+            : [
+                  ...ISSUES,
+                  item(4, 'Old archived bug', false, 'acme/legacy'),
+                  item(5, 'Forgotten request', false, 'acme/sleepy')
+              ]
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            headers: { 'access-control-allow-origin': '*' },
+            body: JSON.stringify({ total_count: items.length, items })
+        })
+    })
+
+    await page.setViewportSize({ width: 800, height: 600 })
+    await page.goto('/?sources=org:acme')
+    const cards = page.locator('article')
+    await expect(cards).toHaveCount(5)
+    await expect(page.locator('article', { hasText: 'Old archived bug' })).toContainText('archived')
+
+    await page.getByRole('button', { name: /^Hide archived/ }).click()
+    await expect(cards).toHaveCount(4)
+    await expect(page.getByText('Old archived bug')).toHaveCount(0)
+    await page.getByRole('button', { name: /^Hide dormant repos/ }).click()
+    await expect(cards).toHaveCount(3)
+    await expect(page.getByText('Forgotten request')).toHaveCount(0)
+
+    // Every filter dropdown stays inside the viewport and never makes the page scroll.
+    const width = await page.evaluate(() => document.documentElement.clientWidth)
+    for (const name of ['Labels', 'Repos', 'Authors', 'Assignees', 'Milestones']) {
+        await page.getByRole('button', { name, exact: true }).click()
+        const box = await page.locator('.fade-in.absolute').boundingBox()
+        expect(box).not.toBeNull()
+        expect(box!.x).toBeGreaterThanOrEqual(0)
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+            true
+        )
+        await page.keyboard.press('Escape')
+    }
 
     expect(errors).toEqual([])
 })

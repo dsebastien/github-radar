@@ -222,3 +222,47 @@ describe('GitHubClient.canReadProjects', () => {
         expect(await client.canReadProjects(['me'])).toBe(false)
     })
 })
+
+describe('GitHubClient.repoInfo', () => {
+    const repo = (full_name: string, archived: boolean, pushed_at: string | null) => ({
+        full_name,
+        archived,
+        fork: false,
+        open_issues_count: 1,
+        pushed_at
+    })
+
+    test('lists owners once, reads repo sources, skips what cannot be read', async () => {
+        const paths: string[] = []
+        const client = new GitHubClient(
+            null,
+            () => {},
+            (input: RequestInfo | URL) => {
+                const url = new URL(input instanceof Request ? input.url : input.toString())
+                paths.push(url.pathname)
+                if (url.pathname === '/orgs/acme/repos')
+                    return Promise.resolve(
+                        json(200, [repo('acme/Old', true, '2020-01-01T00:00:00Z')])
+                    )
+                if (url.pathname === '/repos/me/tool')
+                    return Promise.resolve(json(200, repo('me/tool', false, null)))
+                return Promise.resolve(json(404, { message: 'Not Found' }))
+            }
+        )
+        const sources: Source[] = [
+            { kind: 'org', value: 'acme' },
+            { kind: 'repo', value: 'me/tool' },
+            { kind: 'user', value: 'ghost' }
+        ]
+        expect(await client.repoInfo(sources)).toEqual({
+            repos: {
+                'acme/old': { archived: true, pushedAt: '2020-01-01T00:00:00Z' },
+                'me/tool': { archived: false, pushedAt: null }
+            },
+            failed: [{ kind: 'user', value: 'ghost' }]
+        })
+        // The owner listing is cached and shared with ownerRepos().
+        expect(await client.ownerRepos({ kind: 'org', value: 'acme' }, true)).toEqual([])
+        expect(paths.filter((p) => p === '/orgs/acme/repos')).toHaveLength(1)
+    })
+})

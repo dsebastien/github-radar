@@ -129,6 +129,10 @@ export interface Filters {
     hideDrafts: boolean
     /** Hide items opened by bots (see isBot). */
     hideBots: boolean
+    /** Hide items of archived repositories (see RepoInfo). */
+    hideArchived: boolean
+    /** Hide items of dormant repositories: nothing pushed for DORMANT_DAYS (see RepoInfo). */
+    hideDormant: boolean
     /** Only items created or updated since the last visit. */
     onlyNew: boolean
     /** Pull request review and CI state; items that are not enriched PRs never match. */
@@ -153,6 +157,8 @@ export const DEFAULT_FILTERS: Filters = {
     attention: 'any',
     hideDrafts: false,
     hideBots: false,
+    hideArchived: false,
+    hideDormant: false,
     onlyNew: false,
     review: 'any',
     hiddenSources: [],
@@ -213,6 +219,13 @@ export interface Milestone {
     number: number
     title: string
     due_on: string | null
+}
+
+/** What GitHub says about a repository that items do not carry, from the owner repo lists. */
+export interface RepoInfo {
+    archived: boolean
+    /** Last push to any branch, null for an empty repository. */
+    pushedAt: string | null
 }
 
 export interface RepoLabel {

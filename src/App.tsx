@@ -7,6 +7,7 @@ import { Hero } from './components/Hero'
 import { ItemCard } from './components/ItemCard'
 import { ItemDrawer } from './components/ItemDrawer'
 import { RepoActionsContext } from './components/RepoActions'
+import { RepoStatusTag } from './components/RepoStatusTag'
 import { RepoMenu } from './components/RepoMenu'
 import { LoginDialog, TOKEN_URL } from './components/LoginDialog'
 import { Modal } from './components/Modal'
@@ -24,7 +25,7 @@ import { isTypingTarget, SHORTCUTS, stepId } from './lib/keyboard'
 import { projectOwners } from './lib/projects'
 import { daysLeft, expiresSoon } from './lib/token'
 import { parseView, VIEW_PARAMS, type SavedView } from './lib/view'
-import { mutedCounts, removeNoise, toggleMuted } from './lib/noise'
+import { mutedCounts, removeNoise, repoStatus, statusCounts, toggleMuted } from './lib/noise'
 import {
     applyFilters,
     computeFacets,
@@ -129,21 +130,43 @@ export function App() {
         setTokenExpiresAt
     )
 
-    // Muted repositories and (optionally) bots are noise: out of the list, stats, facets and
-    // source counts alike. The sources panel still says how many items are muted.
+    // Muted repositories and (optionally) bots, archived and dormant repositories are noise:
+    // out of the list, stats, facets and source counts alike. The sources panel still says how
+    // many items are muted.
     const [mutedRepos, setMutedRepos] = usePersistedState<string[]>('mutedRepos', [])
     const denoised = useMemo(
-        () => removeNoise(radar.items, { mutedRepos, hideBots: filters.hideBots }),
-        [radar.items, mutedRepos, filters.hideBots]
+        () =>
+            removeNoise(radar.items, {
+                mutedRepos,
+                hideBots: filters.hideBots,
+                hideArchived: filters.hideArchived,
+                hideDormant: filters.hideDormant,
+                repoInfo: radar.repoInfo,
+                now
+            }),
+        [
+            radar.items,
+            mutedRepos,
+            filters.hideBots,
+            filters.hideArchived,
+            filters.hideDormant,
+            radar.repoInfo,
+            now
+        ]
     )
     const muted = useMemo(() => mutedCounts(radar.items, mutedRepos), [radar.items, mutedRepos])
+    const repoStatuses = useMemo(
+        () => statusCounts(radar.items, radar.repoInfo, now),
+        [radar.items, radar.repoInfo, now]
+    )
     const repoActions = useMemo(
         () => ({
             isMuted: (repo: string) =>
                 mutedRepos.some((r) => r.toLowerCase() === repo.toLowerCase()),
-            toggleMute: (repo: string) => setMutedRepos((list) => toggleMuted(list, repo))
+            toggleMute: (repo: string) => setMutedRepos((list) => toggleMuted(list, repo)),
+            status: (repo: string) => repoStatus(radar.repoInfo[repo.toLowerCase()], now)
         }),
-        [mutedRepos, setMutedRepos]
+        [mutedRepos, setMutedRepos, radar.repoInfo, now]
     )
     // Items from hidden sources stay cached but leave the stats and facets.
     const scoped = useMemo(
@@ -604,6 +627,7 @@ export function App() {
                                 filters={filters}
                                 facets={facets}
                                 viewer={radar.viewer}
+                                repoStatuses={repoStatuses}
                                 onChange={setFilters}
                             />
                         )}
@@ -674,7 +698,10 @@ export function App() {
                                                 </span>
                                             </button>
                                             {filters.group === 'repo' && (
-                                                <RepoMenu repo={g.key} onToast={toast} subtle />
+                                                <>
+                                                    <RepoMenu repo={g.key} onToast={toast} subtle />
+                                                    <RepoStatusTag repo={g.key} />
+                                                </>
                                             )}
                                         </h2>
                                     )}

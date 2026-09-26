@@ -11,6 +11,7 @@ import type {
     Item,
     Project,
     RateLimit,
+    RepoInfo,
     Settings,
     Source,
     StateFilter,
@@ -49,6 +50,15 @@ const OVERLAP_MS = 5 * 60_000
 const FULL_REFRESH_MS = 6 * 60 * 60_000
 /** A source fetched this recently is not refetched just because it became visible again. */
 const FRESH_MS = 60_000
+/** Archived flags and last pushes change rarely: refetched per source after this long. */
+const REPO_INFO_MS = 6 * 60 * 60_000
+
+interface RepoInfoCache {
+    /** Per source key: when its repositories were last read. */
+    stamps: Record<string, number>
+    /** Per lowercased `owner/name`. */
+    repos: Record<string, RepoInfo>
+}
 
 export interface RadarState {
     client: GitHubClient
@@ -81,11 +91,15 @@ export interface RadarState {
     cacheInfo: () => { bytes: number; items: number; stamps: Record<string, SourceStamp> }
     /** Drop the cache and refetch every visible source. */
     resetCache: () => void
+    /** Archived flag and last push per lowercased `owner/name`, for the visible sources. */
+    repoInfo: Record<string, RepoInfo>
 }
 
 const ignoreExpiry = () => {}
 
 const CACHE_KEY = 'cache'
+const REPO_INFO_KEY = 'repoInfo'
+const EMPTY_REPO_INFO: RepoInfoCache = { stamps: {}, repos: {} }
 /** 2: items carry `node_id` (GraphQL enrichment). */
 const CACHE_VERSION = 2
 
@@ -202,6 +216,13 @@ export function useRadar(
     useEffect(() => {
         cacheRef.current = cache
     }, [cache])
+    const [repoInfo, setRepoInfo] = useState<RepoInfoCache>(() =>
+        load(REPO_INFO_KEY, EMPTY_REPO_INFO)
+    )
+    const repoInfoRef = useRef(repoInfo)
+    useEffect(() => {
+        repoInfoRef.current = repoInfo
+    }, [repoInfo])
 
     /** The cache, unless it was fetched for another item state. */
     const usable = cache && cache.state === state ? cache : null
@@ -301,6 +322,25 @@ export function useRadar(
                 }
                 setCache(next)
                 save(CACHE_KEY, next)
+
+                // Archived flags and last pushes, for the "hide archived / dormant" toggles.
+                // Sources that cannot be read stay unstamped, so the next refresh retries them.
+                const staleInfo = visible.filter(
+                    (s) => now - (repoInfoRef.current.stamps[sourceKey(s)] ?? 0) >= REPO_INFO_MS
+                )
+                if (staleInfo.length > 0) {
+                    const { repos, failed } = await client.repoInfo(staleInfo, controller.signal)
+                    if (controller.signal.aborted) return
+                    const stamps = { ...repoInfoRef.current.stamps }
+                    for (const s of staleInfo) if (!failed.includes(s)) stamps[sourceKey(s)] = now
+                    const info = {
+                        stamps,
+                        repos: { ...repoInfoRef.current.repos, ...repos }
+                    }
+                    repoInfoRef.current = info
+                    setRepoInfo(info)
+                    save(REPO_INFO_KEY, info)
+                }
 
                 // Review and CI state of pull requests, then project memberships: GraphQL, so
                 // logged in only. Failures leave the items as they are; the next refresh retries.
@@ -490,11 +530,16 @@ export function useRadar(
             cacheRef.current = null
             setCache(null)
             remove(CACHE_KEY)
+            repoInfoRef.current = EMPTY_REPO_INFO
+            setRepoInfo(EMPTY_REPO_INFO)
+            remove(REPO_INFO_KEY)
             window.setTimeout(() => void run('full'), 0)
-        }
+        },
+        repoInfo: repoInfo.repos
     }
 }
 
 export function clearRadarCache(): void {
     remove(CACHE_KEY)
+    remove(REPO_INFO_KEY)
 }
