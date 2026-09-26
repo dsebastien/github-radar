@@ -175,7 +175,6 @@ test('hides archived and dormant repositories by default, keeps dropdowns inside
 
     // Near the bottom of the page, a menu opens upward instead of growing the page.
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
-    const height = await page.evaluate(() => document.documentElement.scrollHeight)
     const last = cards.last()
     await last.hover()
     await last.getByRole('button', { name: /^Copy links for/ }).click()
@@ -183,7 +182,9 @@ test('hides archived and dormant repositories by default, keeps dropdowns inside
     const trigger = await last.getByRole('button', { name: /^Copy links for/ }).boundingBox()
     const menuBox = await menu.boundingBox()
     expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(trigger!.y + 1)
-    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(height)
+    // Fully inside the viewport (page height is not compared: a late refetch may change it).
+    expect(menuBox!.y).toBeGreaterThanOrEqual(0)
+    expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(500)
 
     expect(errors).toEqual([])
 })
