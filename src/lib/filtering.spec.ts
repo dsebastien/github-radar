@@ -53,13 +53,17 @@ const sources = [
 ]
 const ctx = { now: NOW, viewerLogin: 'bob', sources }
 
+/** The defaults with drafts shown, so every fixture can match. */
+const SHOW_ALL = { ...DEFAULT_FILTERS, hideDrafts: false }
+
 describe('applyFilters', () => {
-    test('defaults keep open items only', () => {
-        expect(applyFilters(fixtures, DEFAULT_FILTERS, ctx).map((i) => i.id)).toEqual([1, 2, 3])
+    test('defaults keep open items only, drafts hidden', () => {
+        expect(applyFilters(fixtures, DEFAULT_FILTERS, ctx).map((i) => i.id)).toEqual([1, 3])
+        expect(applyFilters(fixtures, SHOW_ALL, ctx).map((i) => i.id)).toEqual([1, 2, 3])
     })
     test('text matches title words, repo, number and label', () => {
         const f = (text: string) =>
-            applyFilters(fixtures, { ...DEFAULT_FILTERS, text }, ctx).map((i) => i.id)
+            applyFilters(fixtures, { ...SHOW_ALL, text }, ctx).map((i) => i.id)
         expect(f('dark')).toEqual([2])
         expect(f('crash startup')).toEqual([1])
         expect(f('#3')).toEqual([3])
@@ -68,7 +72,7 @@ describe('applyFilters', () => {
     })
     test('type, drafts, labels, repos, authors, assignees', () => {
         const run = (over: Partial<typeof DEFAULT_FILTERS>) =>
-            applyFilters(fixtures, { ...DEFAULT_FILTERS, ...over }, ctx).map((i) => i.id)
+            applyFilters(fixtures, { ...SHOW_ALL, ...over }, ctx).map((i) => i.id)
         expect(run({ type: 'pr' })).toEqual([2])
         expect(run({ hideDrafts: true })).toEqual([1, 3])
         expect(run({ labels: ['BUG'] })).toEqual([1])
@@ -82,7 +86,7 @@ describe('applyFilters', () => {
         const run = (lastVisit: number | null) =>
             applyFilters(
                 fixtures,
-                { ...DEFAULT_FILTERS, onlyNew: true, state: 'all' },
+                { ...SHOW_ALL, onlyNew: true, state: 'all' },
                 {
                     ...ctx,
                     lastVisit
@@ -106,7 +110,7 @@ describe('applyFilters', () => {
         const run = (mine: typeof DEFAULT_FILTERS.mine, withSets = true) =>
             applyFilters(
                 fixtures,
-                { ...DEFAULT_FILTERS, mine },
+                { ...SHOW_ALL, mine },
                 { ...ctx, viewerLogin: 'alice', involvement: withSets ? involvement : null }
             ).map((i) => i.id)
         expect(run('mentioned')).toEqual([2])
@@ -116,11 +120,9 @@ describe('applyFilters', () => {
     })
     test('"mine" shortcuts use the viewer login', () => {
         const run = (mine: typeof DEFAULT_FILTERS.mine, login: string | null) =>
-            applyFilters(
-                fixtures,
-                { ...DEFAULT_FILTERS, mine },
-                { ...ctx, viewerLogin: login }
-            ).map((i) => i.id)
+            applyFilters(fixtures, { ...SHOW_ALL, mine }, { ...ctx, viewerLogin: login }).map(
+                (i) => i.id
+            )
         expect(run('authored', 'bob')).toEqual([2])
         expect(run('assigned', 'bob')).toEqual([1])
         expect(run('involved', 'bob')).toEqual([1, 2])
@@ -128,9 +130,7 @@ describe('applyFilters', () => {
     })
     test('attention filter', () => {
         const run = (attention: typeof DEFAULT_FILTERS.attention) =>
-            applyFilters(fixtures, { ...DEFAULT_FILTERS, attention, state: 'all' }, ctx).map(
-                (i) => i.id
-            )
+            applyFilters(fixtures, { ...SHOW_ALL, attention, state: 'all' }, ctx).map((i) => i.id)
         expect(run('stale')).toEqual([3])
         expect(run('dormant')).toEqual([4])
         expect(run('draft')).toEqual([2])
@@ -146,13 +146,13 @@ describe('source visibility', () => {
     })
     test('hidden sources drop items unless another visible source still covers them', () => {
         const run = (hiddenSources: string[]) =>
-            applyFilters(fixtures, { ...DEFAULT_FILTERS, hiddenSources }, ctx).map((i) => i.id)
+            applyFilters(fixtures, { ...SHOW_ALL, hiddenSources }, ctx).map((i) => i.id)
         expect(run(['user:o'])).toEqual([2])
         expect(run(['user:o', 'repo:o/other'])).toEqual([])
         expect(run(['repo:o/other'])).toEqual([1, 2, 3])
     })
     test('pruneFilters drops selections no visible item can satisfy', () => {
-        const f = { ...DEFAULT_FILTERS, repos: ['o/other'], labels: ['bug'], authors: ['bob'] }
+        const f = { ...SHOW_ALL, repos: ['o/other'], labels: ['bug'], authors: ['bob'] }
         // Nothing hidden: everything still matches, same object back.
         expect(pruneFilters(f, fixtures, sources)).toBe(f)
         // Hiding user O leaves item 2 only (o/other, by bob, unlabeled): the label selection goes.

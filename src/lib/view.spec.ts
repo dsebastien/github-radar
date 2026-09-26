@@ -15,7 +15,7 @@ const triage: Filters = {
     type: 'pr',
     labels: ['bug', 'needs, triage'],
     review: 'needs-my-review',
-    hideBots: true,
+    hideBots: false,
     group: 'repo',
     text: 'crash'
 }
@@ -24,7 +24,7 @@ describe('serializeView / parseView', () => {
     test('only what differs from the defaults', () => {
         expect(serializeView(DEFAULT_FILTERS).toString()).toBe('')
         expect(serializeView(triage).toString()).toBe(
-            'text=crash&type=pr&labels=bug&labels=needs%2C+triage&hideBots=1&review=needs-my-review&group=repo'
+            'text=crash&type=pr&labels=bug&labels=needs%2C+triage&hideBots=0&review=needs-my-review&group=repo'
         )
     })
     test('round trip, commas in values included', () => {
@@ -57,26 +57,28 @@ describe('saved views', () => {
     test('active view matches filters exactly, tolerating keys added later', () => {
         const { hideBots: _, ...older } = triage
         const views = [{ name: 'Triage', filters: older as Filters }]
-        expect(activeView(views, { ...triage, hideBots: false })?.name).toBe('Triage')
+        expect(activeView(views, { ...triage, hideBots: true })?.name).toBe('Triage')
         expect(activeView(views, triage)).toBeNull()
     })
 })
 
 describe('upgradeFilters', () => {
-    test('turns the archived and dormant toggles on once', () => {
-        const old = {
-            ...DEFAULT_FILTERS,
-            hideArchived: false,
-            hideDormant: false,
-            type: 'pr' as const
-        }
-        expect(upgradeFilters(old, 0)).toEqual({ ...DEFAULT_FILTERS, type: 'pr' })
+    const custom = { ...DEFAULT_FILTERS, type: 'pr' as const }
+    const off = { hideDrafts: false, hideBots: false, hideArchived: false, hideDormant: false }
+
+    test('from 0, turns every hide toggle on once', () => {
+        expect(upgradeFilters({ ...custom, ...off }, 0)).toEqual(custom)
+    })
+
+    test('from 1, turns the drafts and bots toggles on, keeps archived and dormant as chosen', () => {
+        const old = { ...custom, ...off }
+        expect(upgradeFilters(old, 1)).toEqual({ ...old, hideDrafts: true, hideBots: true })
         expect(upgradeFilters(old, FILTERS_VERSION)).toBe(old)
     })
 
     test('a shared view that turns them off keeps them off', () => {
-        const params = serializeView({ ...DEFAULT_FILTERS, hideArchived: false })
-        expect(params.toString()).toBe('hideArchived=0')
-        expect(parseView(params)).toEqual({ hideArchived: false })
+        const params = serializeView({ ...DEFAULT_FILTERS, hideArchived: false, hideBots: false })
+        expect(params.toString()).toBe('hideBots=0&hideArchived=0')
+        expect(parseView(params)).toEqual({ hideArchived: false, hideBots: false })
     })
 })
