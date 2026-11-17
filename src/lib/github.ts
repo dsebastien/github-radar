@@ -91,6 +91,21 @@ export class GitHubError extends Error {
 
 type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
+/** How long to wait before a dropped read is sent again: two more tries. */
+const NETWORK_RETRY_DELAYS_MS: readonly number[] = [1000, 3000]
+
+/**
+ * A read can be sent again without a side effect: a GET, or a GraphQL query. A write (POST,
+ * PATCH, PUT, DELETE, a GraphQL mutation) cannot: GitHub may have applied it before the
+ * connection dropped.
+ */
+function isRead(path: string, method: string, body: unknown): boolean {
+    if (method === 'GET') return true
+    if (path !== '/graphql' || typeof body !== 'object' || body === null) return false
+    const query = (body as { query?: unknown }).query
+    return typeof query === 'string' && !/^\s*mutation\b/.test(query)
+}
+
 interface RawUser {
     login: string
     avatar_url: string
@@ -240,7 +255,9 @@ export class GitHubClient {
          * Fires with the token's expiry from `github-authentication-token-expiration`. Browsers
          * only see it if GitHub exposes the header to CORS requests, which it does not today.
          */
-        private readonly onTokenExpiry: (expiresAt: number) => void = () => {}
+        private readonly onTokenExpiry: (expiresAt: number) => void = () => {},
+        /** Waits before a dropped read is sent again; tests pass zeros. */
+        private readonly retryDelaysMs: readonly number[] = NETWORK_RETRY_DELAYS_MS
     ) {}
 
     /** Owner repository lists, per source key, with when they were fetched. */
@@ -262,9 +279,10 @@ export class GitHubClient {
         }
         if (this.token) headers['Authorization'] = `Bearer ${this.token}`
         if (init.body !== undefined) headers['Content-Type'] = 'application/json'
-        const send = () =>
+        const method = init.method ?? 'GET'
+        const once = () =>
             this.fetchImpl(API + path, {
-                method: init.method ?? 'GET',
+                method,
                 headers,
                 body: init.body === undefined ? undefined : JSON.stringify(init.body),
                 signal: init.signal ?? null
@@ -277,6 +295,30 @@ export class GitHubClient {
                     reject(new DOMException('Aborted', 'AbortError'))
                 })
             })
+        // `fetch` rejects with a TypeError ("Failed to fetch") when the network drops, and also
+        // when GitHub answers without CORS headers, which its gateway does on a 502 or 504 (a
+        // slow search or GraphQL query). Both pass: send a read again before giving up, so one
+        // blip does not cost a refresh its pull request details or its involvement flags.
+        const repeatable = isRead(path, method, init.body)
+        const send = async (): Promise<Response> => {
+            for (let attempt = 0; ; attempt++) {
+                try {
+                    return await once()
+                } catch (e) {
+                    if (init.signal?.aborted || !(e instanceof TypeError)) throw e
+                    const delay = repeatable ? this.retryDelaysMs[attempt] : undefined
+                    if (delay === undefined) {
+                        throw new GitHubError(
+                            repeatable
+                                ? 'GitHub did not answer (network error, or a gateway error on its side). The next refresh tries again.'
+                                : 'GitHub did not answer (network error, or a gateway error on its side). Check whether the change was applied before you try again.',
+                            0
+                        )
+                    }
+                    await sleep(delay)
+                }
+            }
+        }
         let response = await send()
         // Rate limited: the per-minute search budget (x-ratelimit-remaining: 0, resets within a
         // minute), the secondary burst limit (retry-after), or abuse detection (403 without either).

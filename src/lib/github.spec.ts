@@ -350,3 +350,119 @@ describe('GitHubClient.setState', () => {
         ])
     })
 })
+
+describe('GitHubClient network errors', () => {
+    /** What `fetch` rejects with when the network drops, or GitHub answers without CORS headers. */
+    const dropped = () => Promise.reject(new TypeError('Failed to fetch'))
+    const empty = () => Promise.resolve(json(200, { total_count: 0, items: [] }))
+
+    /** A fetch that drops the first `failures` calls, then answers with `ok`. */
+    const flaky = (failures: number, ok: () => Promise<Response> = empty) => {
+        const calls: string[] = []
+        const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+            calls.push(init?.method ?? 'GET')
+            if (typeof input !== 'string') throw new Error('unexpected input')
+            return calls.length <= failures ? dropped() : ok()
+        }
+        return { calls, fetch }
+    }
+
+    test('a read that drops is sent again, so one blip does not lose the involvement flags', async () => {
+        const { calls, fetch } = flaky(2)
+        const client = new GitHubClient(
+            't',
+            () => {},
+            fetch,
+            () => {},
+            [0, 0]
+        )
+        const involvement = await client.involvement('open')
+        expect(involvement).toEqual({ mentioned: [], reviewRequested: [], commented: [] })
+        expect(calls.length).toBe(2 + 5) // two drops, then the five searches
+    })
+
+    test('a GraphQL query is a read too', async () => {
+        const { calls, fetch } = flaky(1, () =>
+            Promise.resolve(json(200, { data: { viewer: { login: 'me' } } }))
+        )
+        const client = new GitHubClient(
+            't',
+            () => {},
+            fetch,
+            () => {},
+            [0, 0]
+        )
+        const data = await client.graphql<{ viewer: { login: string } }>(
+            'query { viewer { login } }',
+            {}
+        )
+        expect(data.viewer.login).toBe('me')
+        expect(calls.length).toBe(2)
+    })
+
+    test('gives up after the last delay, with a message that says what happened', async () => {
+        const { calls, fetch } = flaky(99)
+        const client = new GitHubClient(
+            't',
+            () => {},
+            fetch,
+            () => {},
+            [0, 0]
+        )
+        const error = await client.involvement('open').catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(GitHubError)
+        expect((error as GitHubError).status).toBe(0)
+        expect((error as GitHubError).message).toContain('GitHub did not answer')
+        expect(calls.length).toBe(3)
+    })
+
+    test('a write is never sent twice', async () => {
+        const { calls, fetch } = flaky(1)
+        const client = new GitHubClient(
+            't',
+            () => {},
+            fetch,
+            () => {},
+            [0, 0]
+        )
+        const error = await client.createMilestone('a/b', 'v1').catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(GitHubError)
+        expect(calls).toEqual(['POST'])
+    })
+
+    test('a GraphQL mutation is never sent twice', async () => {
+        const { calls, fetch } = flaky(1)
+        const client = new GitHubClient(
+            't',
+            () => {},
+            fetch,
+            () => {},
+            [0, 0]
+        )
+        const error = await client
+            .graphql('mutation { addStar(input: {}) { clientMutationId } }', {})
+            .catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(GitHubError)
+        expect(calls.length).toBe(1)
+    })
+
+    test('an aborted refresh is not sent again', async () => {
+        const controller = new AbortController()
+        const calls: number[] = []
+        const fetch = () => {
+            calls.push(1)
+            controller.abort()
+            return dropped()
+        }
+        const client = new GitHubClient(
+            't',
+            () => {},
+            fetch,
+            () => {},
+            [0, 0]
+        )
+        const error = await client.involvement('open', controller.signal).catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(TypeError)
+        expect(calls.length).toBe(1)
+    })
+})
