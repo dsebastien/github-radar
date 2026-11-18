@@ -121,7 +121,8 @@ export function pruneFilters(f: Filters, items: Item[], sources: Source[]): Filt
     const keep = (list: string[], set: Set<string>) => list.filter((v) => set.has(lower(v)))
     const next = {
         ...f,
-        repos: keep(f.repos, repos),
+        // An exclusion is a standing rule: it stays for when the repository has items again.
+        repos: f.reposExcluded ? f.repos : keep(f.repos, repos),
         labels: keep(f.labels, labels),
         authors: keep(f.authors, authors),
         assignees: keep(f.assignees, assignees),
@@ -171,7 +172,10 @@ export function applyFilters(items: Item[], f: Filters, ctx: FilterContext): Ite
             )
         )
             return false
-        if (f.repos.length > 0 && !hasAny([item.repo], f.repos)) return false
+        if (f.repos.length > 0) {
+            const listed = hasAny([item.repo], f.repos)
+            if (f.reposExcluded ? listed : !listed) return false
+        }
         if (f.authors.length > 0 && !hasAny(item.author ? [item.author.login] : [], f.authors))
             return false
         if (
@@ -344,4 +348,33 @@ export function unselectAll(selected: string[], names: string[]): string[] {
     const drop = new Set(names.map((v) => v.toLowerCase()))
     const next = selected.filter((v) => !drop.has(v.toLowerCase()))
     return next.length === selected.length ? selected : next
+}
+
+/** The repository part of the filters: a list, and whether it names what to keep or what to leave out. */
+export type RepoChoice = Pick<Filters, 'repos' | 'reposExcluded'>
+
+/** No repository filter: nothing is ticked and every repository shows. */
+export const NO_REPO_CHOICE: RepoChoice = { repos: [], reposExcluded: false }
+
+/**
+ * Every repository ticked. It is an empty exclusion list, not a list of the repositories known
+ * today, so a repository that gets its first item later shows too.
+ */
+export const ALL_REPOS: RepoChoice = { repos: [], reposExcluded: true }
+
+/** Whether the choice names this repository as one to show (its row is ticked in the Repos filter). */
+export function isRepoTicked(choice: RepoChoice, repo: string): boolean {
+    const key = repo.toLowerCase()
+    const listed = choice.repos.some((r) => r.toLowerCase() === key)
+    return choice.reposExcluded ? !listed : listed
+}
+
+/** Tick (`on`) or untick repositories. The kind of list holds: an exclusion list stays one. */
+export function tickRepos(choice: RepoChoice, names: string[], on: boolean): RepoChoice {
+    // An exclusion list grows when a repository is unticked, an inclusion list when one is ticked.
+    const add = choice.reposExcluded ? !on : on
+    return {
+        repos: add ? selectAll(choice.repos, names) : unselectAll(choice.repos, names),
+        reposExcluded: choice.reposExcluded
+    }
 }

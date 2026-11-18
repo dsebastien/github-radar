@@ -121,6 +121,11 @@ export interface Filters {
     state: StateFilter
     labels: string[]
     repos: string[]
+    /**
+     * `repos` names the repositories to leave out, not the ones to keep: every other repository
+     * shows, also one that gets its first item later. Set by "Select all" in the Repos filter.
+     */
+    reposExcluded: boolean
     authors: string[]
     assignees: string[]
     /** Milestone titles (matched across repositories), or NO_MILESTONE. */
@@ -152,6 +157,7 @@ export const DEFAULT_FILTERS: Filters = {
     state: 'open',
     labels: [],
     repos: [],
+    reposExcluded: false,
     authors: [],
     assignees: [],
     milestones: [],

@@ -1,7 +1,16 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { usePopoverPlacement } from '@/hooks/usePopoverPlacement'
-import { DORMANT_DAYS, matchNames, selectAll, unselectAll, type Facets } from '@/lib/filtering'
+import {
+    ALL_REPOS,
+    DORMANT_DAYS,
+    isRepoTicked,
+    matchNames,
+    NO_REPO_CHOICE,
+    tickRepos,
+    type Facets,
+    type RepoChoice
+} from '@/lib/filtering'
 import type { RepoStatus } from '@/lib/noise'
 import { DEFAULT_FILTERS, NO_MILESTONE, NO_PROJECT, type Filters, type Viewer } from '@/lib/types'
 import { RepoStatusTag } from './RepoStatusTag'
@@ -92,12 +101,12 @@ export function FilterBar({ filters, facets, viewer, repoStatuses, onChange }: P
                         ))}
                     </div>
                 </Dropdown>
-                <Dropdown label='Repos' count={filters.repos.length}>
-                    <RepoChoices
-                        repos={facets.repos}
-                        selected={filters.repos}
-                        onChange={(repos) => set({ repos })}
-                    />
+                <Dropdown
+                    label='Repos'
+                    count={filters.repos.length}
+                    badge={filters.reposExcluded ? `−${filters.repos.length}` : undefined}
+                >
+                    <RepoChoices repos={facets.repos} choice={filters} onChange={set} />
                 </Dropdown>
                 <Dropdown label='Authors' count={filters.authors.length}>
                     {facets.authors.length === 0 && <Empty />}
@@ -302,9 +311,10 @@ export function FilterBar({ filters, facets, viewer, repoStatuses, onChange }: P
                     {filters.repos.length > MAX_REPO_CHIPS ? (
                         <Chip
                             active
-                            onClick={() => set({ repos: [] })}
-                            title={`Click to unselect all:\n${filters.repos.join('\n')}`}
+                            onClick={() => set(NO_REPO_CHOICE)}
+                            title={`Click to remove this filter:\n${filters.repos.join('\n')}`}
                         >
+                            {filters.reposExcluded ? 'all but ' : ''}
                             {filters.repos.length} repos ×
                         </Chip>
                     ) : (
@@ -313,7 +323,9 @@ export function FilterBar({ filters, facets, viewer, repoStatuses, onChange }: P
                                 key={`r-${r}`}
                                 active
                                 onClick={() => set({ repos: toggle(filters.repos, r) })}
+                                title={filters.reposExcluded ? 'Click to show it again' : undefined}
                             >
+                                {filters.reposExcluded ? 'not ' : ''}
                                 {r} ×
                             </Chip>
                         ))
@@ -395,6 +407,7 @@ function Segmented<T extends string>({
 function Dropdown({
     label,
     count = 0,
+    badge,
     active,
     title,
     ariaLabel,
@@ -402,6 +415,8 @@ function Dropdown({
 }: {
     label: ReactNode
     count?: number
+    /** Shown in place of the count, when the count alone would mislead. */
+    badge?: ReactNode
     /** Highlight classes for the trigger when the filter is set (defaults to the count style). */
     active?: string
     title?: string
@@ -447,7 +462,7 @@ function Dropdown({
                 {label}
                 {count > 0 && (
                     <span className='bg-secondary rounded-full px-1.5 text-[10px] text-white'>
-                        {count}
+                        {badge ?? count}
                     </span>
                 )}
                 <span aria-hidden className='text-[9px]'>
@@ -554,25 +569,27 @@ function Row({
 }
 
 /**
- * The Repos filter: a search field to narrow a long list, and buttons that select or unselect
- * every repository at once (only the listed ones while a search narrows the list).
+ * The Repos filter: a search field to narrow a long list, and buttons that tick or untick every
+ * repository at once (only the listed ones while a search narrows the list). "Select all" ticks
+ * every repository, also the ones not known yet; an untick then leaves that repository out.
  */
 function RepoChoices({
     repos,
-    selected,
+    choice,
     onChange
 }: {
     repos: Facets['repos']
-    selected: string[]
-    onChange: (repos: string[]) => void
+    choice: RepoChoice
+    onChange: (choice: RepoChoice) => void
 }) {
     const [query, setQuery] = useState('')
     if (repos.length === 0) return <Empty />
     const narrowed = query.trim() !== ''
     const matches = matchNames(repos, query)
     const names = matches.map((r) => r.name)
-    const chosen = new Set(selected.map((r) => r.toLowerCase()))
-    const picked = names.filter((n) => chosen.has(n.toLowerCase())).length
+    const picked = names.filter((n) => isRepoTicked(choice, n)).length
+    const ticked = repos.filter((r) => isRepoTicked(choice, r.name)).length
+    const untouched = choice.repos.length === 0
     const bulk =
         'rounded-md bg-white/8 px-2 py-1 text-xs font-semibold whitespace-nowrap hover:bg-white/14 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/8'
     return (
@@ -594,16 +611,28 @@ function RepoChoices({
                     <button
                         type='button'
                         className={bulk}
-                        disabled={picked === names.length}
-                        onClick={() => onChange(selectAll(selected, names))}
+                        disabled={
+                            narrowed ? picked === names.length : choice.reposExcluded && untouched
+                        }
+                        onClick={() =>
+                            onChange(narrowed ? tickRepos(choice, names, true) : ALL_REPOS)
+                        }
+                        title={
+                            narrowed
+                                ? undefined
+                                : 'Tick every repository. Untick the ones to leave out: a repository that shows up later stays included.'
+                        }
                     >
                         {narrowed ? `Select ${names.length} listed` : 'Select all'}
                     </button>
                     <button
                         type='button'
                         className={bulk}
-                        disabled={narrowed ? picked === 0 : selected.length === 0}
-                        onClick={() => onChange(narrowed ? unselectAll(selected, names) : [])}
+                        disabled={narrowed ? picked === 0 : !choice.reposExcluded && untouched}
+                        onClick={() =>
+                            onChange(narrowed ? tickRepos(choice, names, false) : NO_REPO_CHOICE)
+                        }
+                        title={narrowed ? undefined : 'Remove the repository filter'}
                     >
                         {narrowed ? 'Unselect listed' : 'Unselect all'}
                     </button>
@@ -611,35 +640,36 @@ function RepoChoices({
                         className='text-faint ml-auto text-[10px] whitespace-nowrap'
                         aria-live='polite'
                         title={
-                            selected.length === 0
-                                ? `No repository is selected: all ${repos.length} are shown`
-                                : `${selected.length} of ${repos.length} repositories selected`
+                            choice.reposExcluded
+                                ? `Every repository but ${choice.repos.length}, new ones included`
+                                : untouched
+                                  ? `No repository is selected: all ${repos.length} are shown`
+                                  : `Only the ${choice.repos.length} selected repositories`
                         }
                     >
-                        {selected.length === 0
-                            ? 'no filter'
-                            : `${selected.length} / ${repos.length}`}
+                        {untouched
+                            ? choice.reposExcluded
+                                ? 'all'
+                                : 'no filter'
+                            : `${ticked} / ${repos.length}`}
                     </span>
                 </div>
             </div>
             {matches.length === 0 && <Empty text='No repository matches.' />}
-            {matches.map((r) => (
-                <Row
-                    key={r.name}
-                    active={chosen.has(r.name.toLowerCase())}
-                    onClick={() =>
-                        onChange(
-                            chosen.has(r.name.toLowerCase())
-                                ? unselectAll(selected, [r.name])
-                                : [...selected, r.name]
-                        )
-                    }
-                    count={r.count}
-                >
-                    <span className='truncate'>{r.name}</span>
-                    <RepoStatusTag repo={r.name} />
-                </Row>
-            ))}
+            {matches.map((r) => {
+                const on = isRepoTicked(choice, r.name)
+                return (
+                    <Row
+                        key={r.name}
+                        active={on}
+                        onClick={() => onChange(tickRepos(choice, [r.name], !on))}
+                        count={r.count}
+                    >
+                        <span className='truncate'>{r.name}</span>
+                        <RepoStatusTag repo={r.name} />
+                    </Row>
+                )
+            })}
         </>
     )
 }

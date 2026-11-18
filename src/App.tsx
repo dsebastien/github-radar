@@ -279,7 +279,8 @@ export function App() {
     const focusRepo = (repo: string) =>
         setFilters((f) => ({
             ...f,
-            repos: f.repos.length === 1 && f.repos[0] === repo ? [] : [repo]
+            repos: !f.reposExcluded && f.repos.length === 1 && f.repos[0] === repo ? [] : [repo],
+            reposExcluded: false
         }))
     const toggleSource = (s: Source) =>
         setFilters((f) => {
@@ -383,6 +384,9 @@ export function App() {
                 case '/':
                     document.getElementById('radar-search')?.focus()
                     break
+                case 's':
+                    setSideHidden((hidden) => !hidden)
+                    break
                 case '?':
                     setDialog('keys')
                     break
@@ -393,7 +397,7 @@ export function App() {
         }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
-    }, [])
+    }, [setSideHidden])
     useEffect(() => {
         if (activeId === null) return
         document
@@ -505,7 +509,7 @@ export function App() {
                                 aria-expanded
                                 aria-controls={SIDE_PANEL_ID}
                                 aria-label='Hide the sources and views panel'
-                                title='Hide this panel to give the list the full width'
+                                title='Hide this panel to give the list the full width (s)'
                                 className='text-muted absolute top-3 right-3 z-10 rounded-lg px-2 py-1 text-lg leading-none hover:bg-white/8 hover:text-white'
                             >
                                 <span aria-hidden className='hidden lg:inline'>

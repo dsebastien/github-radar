@@ -1,17 +1,22 @@
 import { describe, expect, test } from 'bun:test'
 import {
+    ALL_REPOS,
     applyFilters,
     attentionFlags,
     computeFacets,
     countBySource,
     groupItems,
     isNew,
+    isRepoTicked,
     itemSources,
     matchNames,
+    NO_REPO_CHOICE,
     pruneFilters,
     selectAll,
     sortItems,
-    unselectAll
+    tickRepos,
+    unselectAll,
+    type RepoChoice
 } from './filtering'
 import { DEFAULT_FILTERS, type Item } from './types'
 
@@ -284,17 +289,42 @@ describe('selecting many facet values at once', () => {
         expect(unselectAll(selected, ['z/z'])).toBe(selected)
     })
 
-    test('a selection of every repository shows the same items as no selection', () => {
-        const items = [item({ id: 1, repo: 'o/a' }), item({ id: 2, repo: 'o/b' })]
+    test('ticking every repository keeps a repository that shows up later', () => {
         const ctx = { now: NOW, viewerLogin: null, sources: [] }
-        const all = selectAll(
-            [],
-            computeFacets(items).repos.map((r) => r.name)
-        )
-        expect(applyFilters(items, { ...DEFAULT_FILTERS, repos: all }, ctx)).toEqual(items)
-        const butOne = unselectAll(all, ['o/a'])
-        expect(
-            applyFilters(items, { ...DEFAULT_FILTERS, repos: butOne }, ctx).map((i) => i.id)
-        ).toEqual([2])
+        const today = [item({ id: 1, repo: 'o/a' }), item({ id: 2, repo: 'o/b' })]
+        const later = [...today, item({ id: 3, repo: 'o/new' })]
+        const run = (items: Item[], choice: RepoChoice) =>
+            applyFilters(items, { ...DEFAULT_FILTERS, ...choice }, ctx).map((i) => i.id)
+
+        expect(run(later, ALL_REPOS)).toEqual([1, 2, 3])
+        // All but one: the exclusion holds, and the new repository still shows.
+        const butOne = tickRepos(ALL_REPOS, ['O/A'], false)
+        expect(butOne).toEqual({ repos: ['O/A'], reposExcluded: true })
+        expect(run(today, butOne)).toEqual([2])
+        expect(run(later, butOne)).toEqual([2, 3])
+        // Ticked again, nothing is left out.
+        expect(tickRepos(butOne, ['o/a'], true)).toEqual(ALL_REPOS)
+    })
+
+    test('ticking from no filter builds a list of the repositories to keep', () => {
+        const only = tickRepos(NO_REPO_CHOICE, ['o/a', 'o/b'], true)
+        expect(only).toEqual({ repos: ['o/a', 'o/b'], reposExcluded: false })
+        expect(tickRepos(only, ['o/a'], false)).toEqual({ repos: ['o/b'], reposExcluded: false })
+    })
+
+    test('isRepoTicked reads the list by its kind, without case', () => {
+        expect(isRepoTicked(NO_REPO_CHOICE, 'o/a')).toBe(false)
+        expect(isRepoTicked(ALL_REPOS, 'o/a')).toBe(true)
+        expect(isRepoTicked({ repos: ['O/A'], reposExcluded: false }, 'o/a')).toBe(true)
+        expect(isRepoTicked({ repos: ['O/A'], reposExcluded: true }, 'o/a')).toBe(false)
+        expect(isRepoTicked({ repos: ['O/A'], reposExcluded: true }, 'o/b')).toBe(true)
+    })
+
+    test('pruneFilters keeps an excluded repository that has no visible item', () => {
+        const items = [item({ id: 1, repo: 'o/a' })]
+        const excluded = { ...DEFAULT_FILTERS, repos: ['o/gone'], reposExcluded: true }
+        expect(pruneFilters(excluded, items, [])).toBe(excluded)
+        const kept = { ...DEFAULT_FILTERS, repos: ['o/gone'] }
+        expect(pruneFilters(kept, items, []).repos).toEqual([])
     })
 })
