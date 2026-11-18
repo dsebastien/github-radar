@@ -312,3 +312,36 @@ export function computeFacets(items: Item[]): Facets {
         )
     }
 }
+
+/**
+ * The rows whose name holds every word of `query`, in any order and any case. An empty query
+ * keeps every row. Used to narrow a long facet list (the Repos filter) while typing.
+ */
+export function matchNames<T extends { name: string }>(rows: T[], query: string): T[] {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return rows
+    return rows.filter((r) => {
+        const name = r.name.toLowerCase()
+        return words.every((w) => name.includes(w))
+    })
+}
+
+/** `selected` plus the `names` it lacks, compared without case. The order of `selected` holds. */
+export function selectAll(selected: string[], names: string[]): string[] {
+    const have = new Set(selected.map((v) => v.toLowerCase()))
+    const added: string[] = []
+    for (const name of names) {
+        const key = name.toLowerCase()
+        if (have.has(key)) continue
+        have.add(key)
+        added.push(name)
+    }
+    return added.length === 0 ? selected : [...selected, ...added]
+}
+
+/** `selected` without `names`, compared without case. */
+export function unselectAll(selected: string[], names: string[]): string[] {
+    const drop = new Set(names.map((v) => v.toLowerCase()))
+    const next = selected.filter((v) => !drop.has(v.toLowerCase()))
+    return next.length === selected.length ? selected : next
+}

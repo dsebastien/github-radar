@@ -7,8 +7,11 @@ import {
     groupItems,
     isNew,
     itemSources,
+    matchNames,
     pruneFilters,
-    sortItems
+    selectAll,
+    sortItems,
+    unselectAll
 } from './filtering'
 import { DEFAULT_FILTERS, type Item } from './types'
 
@@ -248,5 +251,50 @@ describe('computeFacets', () => {
             { title: 'v1', count: 2, repos: 2 },
             { title: '(none)', count: 1, repos: 1 }
         ])
+    })
+})
+
+describe('selecting many facet values at once', () => {
+    const rows = [{ name: 'acme/Widgets' }, { name: 'acme/gadgets' }, { name: 'other/widgets-cli' }]
+
+    test('matchNames keeps the rows that hold every word, in any order and case', () => {
+        expect(matchNames(rows, '')).toBe(rows)
+        expect(matchNames(rows, '   ')).toBe(rows)
+        expect(matchNames(rows, 'WIDGETS').map((r) => r.name)).toEqual([
+            'acme/Widgets',
+            'other/widgets-cli'
+        ])
+        expect(matchNames(rows, 'widgets acme').map((r) => r.name)).toEqual(['acme/Widgets'])
+        expect(matchNames(rows, 'nothing')).toEqual([])
+    })
+
+    test('selectAll adds only the missing names and keeps the current order', () => {
+        expect(selectAll(['b/b'], ['a/a', 'B/B', 'c/c'])).toEqual(['b/b', 'a/a', 'c/c'])
+        expect(selectAll([], ['a/a', 'A/A'])).toEqual(['a/a'])
+    })
+
+    test('selectAll returns the same list when nothing is missing', () => {
+        const selected = ['a/a', 'b/b']
+        expect(selectAll(selected, ['A/A'])).toBe(selected)
+    })
+
+    test('unselectAll removes the given names only, without case', () => {
+        expect(unselectAll(['a/a', 'b/b', 'c/c'], ['A/A', 'c/c', 'z/z'])).toEqual(['b/b'])
+        const selected = ['a/a']
+        expect(unselectAll(selected, ['z/z'])).toBe(selected)
+    })
+
+    test('a selection of every repository shows the same items as no selection', () => {
+        const items = [item({ id: 1, repo: 'o/a' }), item({ id: 2, repo: 'o/b' })]
+        const ctx = { now: NOW, viewerLogin: null, sources: [] }
+        const all = selectAll(
+            [],
+            computeFacets(items).repos.map((r) => r.name)
+        )
+        expect(applyFilters(items, { ...DEFAULT_FILTERS, repos: all }, ctx)).toEqual(items)
+        const butOne = unselectAll(all, ['o/a'])
+        expect(
+            applyFilters(items, { ...DEFAULT_FILTERS, repos: butOne }, ctx).map((i) => i.id)
+        ).toEqual([2])
     })
 })

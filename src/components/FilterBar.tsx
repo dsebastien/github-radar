@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { usePopoverPlacement } from '@/hooks/usePopoverPlacement'
-import { DORMANT_DAYS, type Facets } from '@/lib/filtering'
+import { DORMANT_DAYS, matchNames, selectAll, unselectAll, type Facets } from '@/lib/filtering'
 import type { RepoStatus } from '@/lib/noise'
 import { DEFAULT_FILTERS, NO_MILESTONE, NO_PROJECT, type Filters, type Viewer } from '@/lib/types'
 import { RepoStatusTag } from './RepoStatusTag'
@@ -15,6 +15,11 @@ interface Props {
     repoStatuses?: Record<RepoStatus, number>
     onChange: (f: Filters) => void
 }
+
+/** Above this many selected repositories, one chip stands for all of them. */
+const MAX_REPO_CHIPS = 5
+/** The Repos filter gets a search field from this many repositories. */
+const REPO_SEARCH_FROM = 8
 
 function toggle(list: string[], value: string): string[] {
     return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
@@ -88,18 +93,11 @@ export function FilterBar({ filters, facets, viewer, repoStatuses, onChange }: P
                     </div>
                 </Dropdown>
                 <Dropdown label='Repos' count={filters.repos.length}>
-                    {facets.repos.length === 0 && <Empty />}
-                    {facets.repos.map((r) => (
-                        <Row
-                            key={r.name}
-                            active={filters.repos.includes(r.name)}
-                            onClick={() => set({ repos: toggle(filters.repos, r.name) })}
-                            count={r.count}
-                        >
-                            <span className='truncate'>{r.name}</span>
-                            <RepoStatusTag repo={r.name} />
-                        </Row>
-                    ))}
+                    <RepoChoices
+                        repos={facets.repos}
+                        selected={filters.repos}
+                        onChange={(repos) => set({ repos })}
+                    />
                 </Dropdown>
                 <Dropdown label='Authors' count={filters.authors.length}>
                     {facets.authors.length === 0 && <Empty />}
@@ -301,15 +299,25 @@ export function FilterBar({ filters, facets, viewer, repoStatuses, onChange }: P
                             />
                         )
                     })}
-                    {filters.repos.map((r) => (
+                    {filters.repos.length > MAX_REPO_CHIPS ? (
                         <Chip
-                            key={`r-${r}`}
                             active
-                            onClick={() => set({ repos: toggle(filters.repos, r) })}
+                            onClick={() => set({ repos: [] })}
+                            title={`Click to unselect all:\n${filters.repos.join('\n')}`}
                         >
-                            {r} ×
+                            {filters.repos.length} repos ×
                         </Chip>
-                    ))}
+                    ) : (
+                        filters.repos.map((r) => (
+                            <Chip
+                                key={`r-${r}`}
+                                active
+                                onClick={() => set({ repos: toggle(filters.repos, r) })}
+                            >
+                                {r} ×
+                            </Chip>
+                        ))
+                    )}
                     {filters.authors.map((a) => (
                         <Chip
                             key={`a-${a}`}
@@ -542,6 +550,97 @@ function Row({
             {children}
             <span className='text-faint ml-auto text-xs'>{count}</span>
         </button>
+    )
+}
+
+/**
+ * The Repos filter: a search field to narrow a long list, and buttons that select or unselect
+ * every repository at once (only the listed ones while a search narrows the list).
+ */
+function RepoChoices({
+    repos,
+    selected,
+    onChange
+}: {
+    repos: Facets['repos']
+    selected: string[]
+    onChange: (repos: string[]) => void
+}) {
+    const [query, setQuery] = useState('')
+    if (repos.length === 0) return <Empty />
+    const narrowed = query.trim() !== ''
+    const matches = matchNames(repos, query)
+    const names = matches.map((r) => r.name)
+    const chosen = new Set(selected.map((r) => r.toLowerCase()))
+    const picked = names.filter((n) => chosen.has(n.toLowerCase())).length
+    const bulk =
+        'rounded-md bg-white/8 px-2 py-1 text-xs font-semibold whitespace-nowrap hover:bg-white/14 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/8'
+    return (
+        <>
+            {/* Sticky offsets start at the panel's content edge: the negative top covers its padding. */}
+            <div className='bg-surface-elevated sticky -top-1.5 z-10 -mx-1.5 -mt-1.5 space-y-1.5 p-1.5'>
+                {repos.length >= REPO_SEARCH_FROM && (
+                    <input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder='Find a repository…'
+                        aria-label='Find a repository'
+                        // A touch keyboard must not cover the list as soon as it opens.
+                        autoFocus={window.matchMedia('(pointer: fine)').matches}
+                        className='bg-well border-line focus:border-secondary-text w-full rounded-lg border px-2 py-1.5 text-sm outline-none'
+                    />
+                )}
+                <div className='flex items-center gap-1.5'>
+                    <button
+                        type='button'
+                        className={bulk}
+                        disabled={picked === names.length}
+                        onClick={() => onChange(selectAll(selected, names))}
+                    >
+                        {narrowed ? `Select ${names.length} listed` : 'Select all'}
+                    </button>
+                    <button
+                        type='button'
+                        className={bulk}
+                        disabled={narrowed ? picked === 0 : selected.length === 0}
+                        onClick={() => onChange(narrowed ? unselectAll(selected, names) : [])}
+                    >
+                        {narrowed ? 'Unselect listed' : 'Unselect all'}
+                    </button>
+                    <span
+                        className='text-faint ml-auto text-[10px] whitespace-nowrap'
+                        aria-live='polite'
+                        title={
+                            selected.length === 0
+                                ? `No repository is selected: all ${repos.length} are shown`
+                                : `${selected.length} of ${repos.length} repositories selected`
+                        }
+                    >
+                        {selected.length === 0
+                            ? 'no filter'
+                            : `${selected.length} / ${repos.length}`}
+                    </span>
+                </div>
+            </div>
+            {matches.length === 0 && <Empty text='No repository matches.' />}
+            {matches.map((r) => (
+                <Row
+                    key={r.name}
+                    active={chosen.has(r.name.toLowerCase())}
+                    onClick={() =>
+                        onChange(
+                            chosen.has(r.name.toLowerCase())
+                                ? unselectAll(selected, [r.name])
+                                : [...selected, r.name]
+                        )
+                    }
+                    count={r.count}
+                >
+                    <span className='truncate'>{r.name}</span>
+                    <RepoStatusTag repo={r.name} />
+                </Row>
+            ))}
+        </>
     )
 }
 
