@@ -26,5 +26,6 @@ export const SHORTCUTS: Array<[string, string]> = [
     ['o', 'Open the item on GitHub'],
     ['x', 'Select the item for bulk actions (logged in)'],
     ['/', 'Search'],
+    ['s', 'Hide or show the side panel (sources, views)'],
     ['?', 'Show these shortcuts']
 ]

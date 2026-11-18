@@ -19,7 +19,7 @@ export function SidePanelRail({ hiddenSources, onExpand }: Props) {
             aria-expanded={false}
             aria-controls={SIDE_PANEL_ID}
             aria-label='Show the sources and views panel'
-            title='Show the sources and views panel'
+            title='Show the sources and views panel (s)'
             className='bg-surface border-line shadow-card text-muted flex w-full items-center gap-2 self-start rounded-xl border px-3 py-2 text-xs font-extrabold tracking-wide uppercase transition hover:text-white lg:flex-col lg:px-0 lg:py-3'
         >
             <span aria-hidden className='hidden text-base leading-none lg:inline'>

@@ -216,12 +216,18 @@ test('selects every repository at once and remembers a collapsed side panel', as
     await page.getByRole('button', { name: 'Repos', exact: true }).click()
     const choices = page.locator('.fade-in.absolute')
     await choices.getByRole('button', { name: 'Select all', exact: true }).click()
-    await expect(choices).toContainText('9 / 9')
+    await expect(choices.getByRole('button', { name: 'Select all', exact: true })).toBeDisabled()
     await expect(cards).toHaveCount(9)
     await choices.getByRole('button', { name: /acme\/repo-3/ }).click()
+    await expect(choices).toContainText('8 / 9')
     await expect(cards).toHaveCount(8)
-    // One chip stands for a long selection.
-    await expect(page.getByRole('button', { name: '8 repos ×' })).toBeVisible()
+    // The filter holds the one repository left out, not the eight that show.
+    await expect(page.getByRole('button', { name: 'not acme/repo-3 ×' })).toBeVisible()
+    expect(
+        await page.evaluate(
+            () => JSON.parse(localStorage.getItem('github-radar:filters') ?? '{}') as unknown
+        )
+    ).toMatchObject({ repos: ['acme/repo-3'], reposExcluded: true })
 
     // The search narrows the list, and the buttons then apply to the listed repositories only.
     await choices.getByLabel('Find a repository').fill('repo-1')
@@ -233,6 +239,11 @@ test('selects every repository at once and remembers a collapsed side panel', as
     await expect(choices).toContainText('no filter')
     await expect(cards).toHaveCount(9)
     await page.keyboard.press('Escape')
+
+    // The side panel collapses with a key too.
+    await page.keyboard.press('s')
+    await expect(page.getByRole('heading', { name: 'Sources' })).toBeHidden()
+    await page.keyboard.press('s')
 
     // The side panel collapses, and stays collapsed after a reload.
     const sources = page.getByRole('heading', { name: 'Sources' })
