@@ -188,3 +188,62 @@ test('hides archived and dormant repositories by default, keeps dropdowns inside
 
     expect(errors).toEqual([])
 })
+
+test('selects every repository at once and remembers a collapsed side panel', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
+    await mockGitHub(page)
+    const repos = Array.from({ length: 9 }, (_, i) => `acme/repo-${i + 1}`)
+    // Registered last, so it wins over the generic mock.
+    await page.route('https://api.github.com/search/issues*', (route) => {
+        const q = new URL(route.request().url()).searchParams.get('q') ?? ''
+        const items = q.includes('is:pull-request')
+            ? []
+            : repos.map((r, i) => item(10 + i, `Issue in ${r}`, false, r))
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            headers: { 'access-control-allow-origin': '*' },
+            body: JSON.stringify({ total_count: items.length, items })
+        })
+    })
+
+    await page.goto('/?sources=org:acme')
+    const cards = page.locator('article')
+    await expect(cards).toHaveCount(9)
+
+    // Select all, then leave one out: every repository but that one.
+    await page.getByRole('button', { name: 'Repos', exact: true }).click()
+    const choices = page.locator('.fade-in.absolute')
+    await choices.getByRole('button', { name: 'Select all', exact: true }).click()
+    await expect(choices).toContainText('9 / 9')
+    await expect(cards).toHaveCount(9)
+    await choices.getByRole('button', { name: /acme\/repo-3/ }).click()
+    await expect(cards).toHaveCount(8)
+    // One chip stands for a long selection.
+    await expect(page.getByRole('button', { name: '8 repos ×' })).toBeVisible()
+
+    // The search narrows the list, and the buttons then apply to the listed repositories only.
+    await choices.getByLabel('Find a repository').fill('repo-1')
+    await expect(choices.getByRole('button', { name: /acme\/repo-/ })).toHaveCount(1)
+    await choices.getByRole('button', { name: 'Unselect listed' }).click()
+    await expect(cards).toHaveCount(7)
+    await choices.getByLabel('Find a repository').fill('')
+    await choices.getByRole('button', { name: 'Unselect all', exact: true }).click()
+    await expect(choices).toContainText('no filter')
+    await expect(cards).toHaveCount(9)
+    await page.keyboard.press('Escape')
+
+    // The side panel collapses, and stays collapsed after a reload.
+    const sources = page.getByRole('heading', { name: 'Sources' })
+    await expect(sources).toBeVisible()
+    await page.getByRole('button', { name: 'Hide the sources and views panel' }).click()
+    await expect(sources).toBeHidden()
+    await page.reload()
+    await expect(cards).toHaveCount(9)
+    await expect(sources).toBeHidden()
+    await page.getByRole('button', { name: 'Show the sources and views panel' }).click()
+    await expect(sources).toBeVisible()
+
+    expect(errors).toEqual([])
+})

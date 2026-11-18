@@ -12,6 +12,7 @@ import { RepoMenu } from './components/RepoMenu'
 import { LoginDialog, TOKEN_URL } from './components/LoginDialog'
 import { Modal } from './components/Modal'
 import { SettingsDialog } from './components/SettingsDialog'
+import { SIDE_PANEL_ID, SidePanelRail } from './components/SidePanelRail'
 import { SourcesPanel } from './components/SourcesPanel'
 import { ViewsPanel } from './components/ViewsPanel'
 import { StatsRow } from './components/StatsRow'
@@ -149,6 +150,8 @@ export function App() {
     // out of the list, stats, facets and source counts alike. The sources panel still says how
     // many items are muted.
     const [mutedRepos, setMutedRepos] = usePersistedState<string[]>('mutedRepos', [])
+    // The side panel (sources, views) can be collapsed to give the list the full width.
+    const [sideHidden, setSideHidden] = usePersistedState<boolean>('sidePanelHidden', false)
     const denoised = useMemo(
         () =>
             removeNoise(radar.items, {
@@ -436,13 +439,16 @@ export function App() {
             'lastVisit',
             'views',
             'tokenExpiresAt',
-            'errors'
+            'errors',
+            'sidePanelHidden'
         ])
             remove(key)
         window.location.reload()
     }
 
     const empty = radar.effective.length === 0
+    // Without a source, the side panel is the only way to add one: it stays open.
+    const sideCollapsed = sideHidden && !empty
 
     return (
         <RepoActionsContext.Provider value={repoActions}>
@@ -474,8 +480,42 @@ export function App() {
                     </div>
                 )}
                 <Hero empty={empty} />
-                <main className='mx-auto grid max-w-[112rem] grid-cols-1 gap-5 px-4 pb-24 lg:grid-cols-[19rem_1fr] 2xl:grid-cols-[21rem_1fr] 2xl:gap-6 2xl:px-8'>
-                    <div className='min-w-0 space-y-5'>
+                <main
+                    className={clsx(
+                        'mx-auto grid max-w-[112rem] grid-cols-1 gap-5 px-4 pb-24 2xl:gap-6 2xl:px-8',
+                        sideCollapsed
+                            ? 'lg:grid-cols-[2.5rem_1fr]'
+                            : 'lg:grid-cols-[19rem_1fr] 2xl:grid-cols-[21rem_1fr]'
+                    )}
+                >
+                    {sideCollapsed && (
+                        <SidePanelRail
+                            hiddenSources={filters.hiddenSources.length}
+                            onExpand={() => setSideHidden(false)}
+                        />
+                    )}
+                    <div
+                        id={SIDE_PANEL_ID}
+                        className={clsx('relative min-w-0 space-y-5', sideCollapsed && 'hidden')}
+                    >
+                        {!empty && (
+                            <button
+                                type='button'
+                                onClick={() => setSideHidden(true)}
+                                aria-expanded
+                                aria-controls={SIDE_PANEL_ID}
+                                aria-label='Hide the sources and views panel'
+                                title='Hide this panel to give the list the full width'
+                                className='text-muted absolute top-3 right-3 z-10 rounded-lg px-2 py-1 text-lg leading-none hover:bg-white/8 hover:text-white'
+                            >
+                                <span aria-hidden className='hidden lg:inline'>
+                                    «
+                                </span>
+                                <span aria-hidden className='lg:hidden'>
+                                    ▴
+                                </span>
+                            </button>
+                        )}
                         <SourcesPanel
                             sources={sources}
                             effective={radar.effective}
